@@ -1,0 +1,30 @@
+{
+  "name": "@big/db",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "types": "./src/index.ts",
+  "scripts": {
+    "prisma": "prisma",
+    "generate": "prisma generate",
+    "typecheck": "tsc --noEmit",
+    "seed": "tsx prisma/seed.ts",
+    "clean": "rm -rf .turbo generated"
+  },
+  "prisma": {
+    "seed": "tsx prisma/seed.ts"
+  },
+  "dependencies": {
+    "@prisma/client": "^5.20.0"
+  },
+  "devDependencies": {
+    "@big/shared": "workspace:*",
+    "@types/node": "^20.16.11",
+    "prisma": "^5.20.0",
+    "tsx": "^4.19.1",
+    "typescript": "^5.6.2"
+  }
+}
