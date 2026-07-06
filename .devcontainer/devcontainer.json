@@ -1,0 +1,27 @@
+{
+  "name": "Before IG Upload",
+  "image": "mcr.microsoft.com/devcontainers/typescript-node:1-22-bookworm",
+  "features": {
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {}
+  },
+  "forwardPorts": [3000, 5432, 6379],
+  "portsAttributes": {
+    "3000": { "label": "web", "onAutoForward": "openPreview" }
+  },
+  "postCreateCommand": "corepack enable && corepack prepare pnpm@10.33.0 --activate && pnpm install && cp -n .env.example .env || true",
+  "postAttachCommand": "echo '준비 완료! `pnpm dev` 로 개발 서버를 실행하세요. (DEMO 모드 기본)'",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "dbaeumer.vscode-eslint",
+        "esbenp.prettier-vscode",
+        "bradlc.vscode-tailwindcss",
+        "Prisma.prisma"
+      ],
+      "settings": {
+        "editor.formatOnSave": true,
+        "editor.defaultFormatter": "esbenp.prettier-vscode"
+      }
+    }
+  }
+}

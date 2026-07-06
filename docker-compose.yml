@@ -1,0 +1,68 @@
+# Before IG Upload — 로컬/셀프호스트용 docker-compose
+#
+#   빠른 데모(웹만, DB/Redis 없이):   docker compose up web
+#   전체 스택(Postgres+Redis+worker):  docker compose --profile full up
+#
+services:
+  db:
+    image: postgres:16-alpine
+    profiles: ['full']
+    environment:
+      POSTGRES_USER: big
+      POSTGRES_PASSWORD: big
+      POSTGRES_DB: big
+    ports:
+      - '5432:5432'
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U big']
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    profiles: ['full']
+    ports:
+      - '6379:6379'
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    ports:
+      - '3000:3000'
+    environment:
+      # 기본은 DEMO 모드 (DB/Redis 불필요). full 프로필에서 아래 값으로 덮어쓰세요.
+      DEMO_MODE: ${DEMO_MODE:-1}
+      NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-http://localhost:3000}
+      DATABASE_URL: ${DATABASE_URL:-}
+      REDIS_URL: ${REDIS_URL:-}
+      OCR_PROVIDER: ${OCR_PROVIDER:-dummy}
+      LLM_PROVIDER: ${LLM_PROVIDER:-none}
+      SEARCH_PROVIDER: ${SEARCH_PROVIDER:-none}
+
+  worker:
+    build:
+      context: .
+      dockerfile: apps/worker/Dockerfile
+    profiles: ['full']
+    depends_on:
+      redis:
+        condition: service_healthy
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://big:big@db:5432/big?schema=public
+      REDIS_URL: redis://redis:6379
+      LLM_PROVIDER: ${LLM_PROVIDER:-none}
+      SEARCH_PROVIDER: ${SEARCH_PROVIDER:-none}
+
+volumes:
+  db-data:
