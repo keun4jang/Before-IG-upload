@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallbackRef } from '@/lib/use-callback-ref';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import {
   AlertTriangle,
@@ -32,6 +32,7 @@ import {
 import { Badge, Button, Card, CardContent, cn } from '@big/ui';
 import type { ProjectDetail } from '@/lib/store/types';
 import { api } from '@/lib/api-client';
+import { saveLocalProjectDetail } from '@/lib/local-projects';
 import { toJson, toMarkdown, toPrintableHtml } from '@/lib/services/report-service';
 import { ScoreRing } from './score-ring';
 import { Uploader, type PreparedImage } from './uploader';
@@ -67,6 +68,18 @@ export function Workspace({ initial }: { initial: ProjectDetail }) {
   const [captionText, setCaptionText] = useState(
     initial.caption?.editedText ?? initial.caption?.originalText ?? '',
   );
+
+  // 브라우저에 프로젝트 상태를 자동 저장 (재방문/새로고침 시 유지, 서버 메모리에 의존하지 않음)
+  useEffect(() => {
+    saveLocalProjectDetail({
+      ...detail,
+      caption: detail.caption
+        ? { ...detail.caption, editedText: captionText }
+        : { id: createId('cap'), projectId, originalText: captionText, editedText: captionText },
+      latestRun: run,
+      runs: run ? [run, ...detail.runs.filter((r) => r.id !== run.id)] : detail.runs,
+    });
+  }, [detail, run, captionText, projectId]);
 
   const slides: SlideVM[] = useMemo(() => {
     return detail.slides

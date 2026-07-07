@@ -6,6 +6,7 @@ import { ArrowLeft, Loader2 } from 'lucide-react';
 import Link from 'next/link';
 import { Button, Card, CardContent } from '@big/ui';
 import { api } from '@/lib/api-client';
+import { createLocalProject } from '@/lib/local-projects';
 
 export default function NewProjectPage() {
   const router = useRouter();
@@ -15,7 +16,7 @@ export default function NewProjectPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function onSubmit(e: React.FormEvent) {
+  function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
     if (!name.trim()) {
@@ -23,17 +24,11 @@ export default function NewProjectPage() {
       return;
     }
     setLoading(true);
-    try {
-      const { project } = await api.createProject({
-        name: name.trim(),
-        description: description.trim(),
-        notes: notes.trim(),
-      });
-      router.push(`/projects/${project.id}`);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : '생성에 실패했습니다.');
-      setLoading(false);
-    }
+    // 브라우저에 즉시 생성(서버리스 인스턴스 간 불일치로 인한 404 방지).
+    const input = { name: name.trim(), description: description.trim(), notes: notes.trim() };
+    const detail = createLocalProject(input);
+    api.createProject(input).catch(() => {}); // best-effort 서버 미러링
+    router.push(`/projects/${detail.project.id}`);
   }
 
   return (

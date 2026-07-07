@@ -1,12 +1,10 @@
 'use client';
 
-import { useState, useTransition } from 'react';
-import { useRouter } from 'next/navigation';
+import { useState } from 'react';
 import Link from 'next/link';
 import { Trash2, ImageIcon } from 'lucide-react';
 import type { Project, ProjectStatus } from '@big/shared';
 import { Badge, Button, Card, CardContent } from '@big/ui';
-import { api } from '@/lib/api-client';
 import { relativeTime } from '@/lib/format';
 
 const STATUS_LABEL: Record<ProjectStatus, string> = {
@@ -23,22 +21,20 @@ const STATUS_TONE = {
   archived: 'neutral',
 } as const;
 
-export function ProjectCard({ project }: { project: Project }) {
-  const router = useRouter();
-  const [pending, startTransition] = useTransition();
+export function ProjectCard({
+  project,
+  onDelete,
+}: {
+  project: Project;
+  onDelete: (id: string) => void;
+}) {
   const [deleting, setDeleting] = useState(false);
 
-  async function onDelete(e: React.MouseEvent) {
+  function handleDelete(e: React.MouseEvent) {
     e.preventDefault();
     if (!confirm(`"${project.name}" 프로젝트를 삭제할까요?`)) return;
     setDeleting(true);
-    try {
-      await api.deleteProject(project.id);
-      startTransition(() => router.refresh());
-    } catch (err) {
-      alert(err instanceof Error ? err.message : '삭제에 실패했습니다.');
-      setDeleting(false);
-    }
+    onDelete(project.id);
   }
 
   return (
@@ -66,8 +62,8 @@ export function ProjectCard({ project }: { project: Project }) {
             <Button
               variant="ghost"
               size="icon"
-              onClick={onDelete}
-              disabled={deleting || pending}
+              onClick={handleDelete}
+              disabled={deleting}
               aria-label="프로젝트 삭제"
               className="text-slate-400 hover:text-rose-600"
             >
