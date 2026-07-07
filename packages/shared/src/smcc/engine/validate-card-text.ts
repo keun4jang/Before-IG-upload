@@ -3,6 +3,7 @@ import { scanBadCurrency, compareCardFee } from '../validators/fee';
 import { validateCardLanguage } from '../validators/language';
 import { compareCardLocation } from '../validators/location';
 import { compareCardTime } from '../validators/time';
+import { compareCardDate } from '../validators/date';
 import { compareFields } from '../validators/card-compare';
 import { withIds } from './validate-event';
 
@@ -49,6 +50,7 @@ export function validateCardText(
     ...compareCardFee(e, cardText),
     ...validateCardLanguage(e, cardText),
     ...compareCardLocation(e, cardText),
+    ...compareCardDate(e, cardText),
     ...compareCardTime(e, cardText),
     ...compareFields(e, canonical, cardText),
     ...validateAdditionalInfo(e, cardText),

@@ -1,6 +1,18 @@
-import { WEEKDAY_KR } from '../constants';
+import { MONTH_EN, WEEKDAY_KR } from '../constants';
 import { weekdayFromText } from '../formatters/date';
 import type { NormalizedEvent, RawSmccIssue } from '../schemas';
+
+/** 카드 텍스트에서 월/일 추출 (KR "M월 D일" 또는 EN "Mon D") */
+export function extractMonthDay(text: string): { month: number; day: number } | null {
+  const kr = text.match(/(\d{1,2})\s*월\s*(\d{1,2})\s*일/);
+  if (kr) return { month: Number(kr[1]), day: Number(kr[2]) };
+  const en = text.match(/\b([A-Za-z]{3,})\.?\s+(\d{1,2})(?:st|nd|rd|th)?\b/);
+  if (en) {
+    const mi = MONTH_EN.findIndex((x) => x.toLowerCase() === en[1]!.slice(0, 3).toLowerCase());
+    if (mi >= 0) return { month: mi + 1, day: Number(en[2]) };
+  }
+  return null;
+}
 
 /** 날짜 파싱 + 요일 일치 검사 */
 export function validateEventDate(e: NormalizedEvent): RawSmccIssue[] {
@@ -30,6 +42,40 @@ export function validateEventDate(e: NormalizedEvent): RawSmccIssue[] {
       actual: `${WEEKDAY_KR[rawWd]}요일`,
       confidence: 0.95,
       resolutionHint: '날짜 또는 요일 표기를 수정하세요.',
+    });
+  }
+  return issues;
+}
+
+/** 카드 텍스트의 날짜/요일이 원본과 일치하는지 검사 (이미지 OCR/입력 대비) */
+export function compareCardDate(e: NormalizedEvent, cardText: string): RawSmccIssue[] {
+  const issues: RawSmccIssue[] = [];
+  if (!e.dateIso) return issues;
+  const [, m, d] = e.dateIso.split('-').map(Number);
+
+  const md = extractMonthDay(cardText);
+  if (md && (md.month !== m || md.day !== d)) {
+    issues.push({
+      category: 'date-rule',
+      severity: 'error',
+      title: '날짜 불일치',
+      description: '카드 날짜가 원본과 다릅니다.',
+      expected: `${m}월 ${d}일`,
+      actual: `${md.month}월 ${md.day}일`,
+      confidence: 0.9,
+    });
+  }
+
+  const cardWd = weekdayFromText(cardText);
+  if (cardWd != null && e.weekdayExpected != null && cardWd !== e.weekdayExpected) {
+    issues.push({
+      category: 'date-rule',
+      severity: 'error',
+      title: '요일 불일치',
+      description: '카드 요일이 실제 날짜의 요일과 다릅니다.',
+      expected: `${WEEKDAY_KR[e.weekdayExpected]}요일`,
+      actual: `${WEEKDAY_KR[cardWd]}요일`,
+      confidence: 0.9,
     });
   }
   return issues;

@@ -121,6 +121,19 @@ describe('normalize + canonical (fixtures)', () => {
     expect(goodDateErr.length + badDateErr.length).toBe(1);
   });
 
+  it('카드 검수: 날짜/요일 불일치 감지 (이미지 정보 대비)', () => {
+    const f = FIXTURES['espresso-run'];
+    const e = normalizeRow('espresso-run', f.headers, f.rows[0]!, { sheetUrl: f.url, rowIndex: 0, refDate: new Date('2026-07-01') });
+    // 원본은 7월 10일. 카드에 7월 25일이면 날짜 불일치
+    const r1 = reviewEvent(e, '에스프레소 런\n7월 25일');
+    expect(r1.cardIssues.some((i) => i.category === 'date-rule' && i.title === '날짜 불일치')).toBe(true);
+    // 요일을 실제와 다르게 적으면 요일 불일치
+    const WD = ['일', '월', '화', '수', '목', '금', '토'];
+    const wrongWd = WD[(e.weekdayExpected! + 1) % 7];
+    const r2 = reviewEvent(e, `에스프레소 런\n7월 10일 ${wrongWd}요일`);
+    expect(r2.cardIssues.some((i) => i.category === 'date-rule' && i.title === '요일 불일치')).toBe(true);
+  });
+
   it('카드 검수: 무료 프로그램에 금액 있으면 오류', () => {
     const f = FIXTURES['daily-coffee-chat-kr'];
     const e = normalizeRow('daily-coffee-chat-kr', f.headers, f.rows[0]!, { sheetUrl: f.url, rowIndex: 0, refDate: new Date('2026-07-01') });

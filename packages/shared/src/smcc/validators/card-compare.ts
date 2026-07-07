@@ -17,10 +17,9 @@ export function compareFields(
 ): RawSmccIssue[] {
   const issues: RawSmccIssue[] = [];
 
+  // 날짜/시간은 전용 validator(compareCardDate/compareCardTime)에서 정밀 비교
   const checks: Array<{ label: string; value: string; severity: 'error' | 'warning' | 'info' }> = [
     { label: '프로그램명', value: canonical.programName, severity: 'warning' },
-    { label: '날짜', value: canonical.dateLabel, severity: 'warning' },
-    { label: '시간', value: canonical.timeLabel, severity: 'info' },
     { label: '지역', value: canonical.locationLabel, severity: 'info' },
     { label: '카페', value: e.cafeName, severity: 'warning' },
     { label: '호스트', value: canonical.hostLabel.replace(/^@/, ''), severity: 'info' },

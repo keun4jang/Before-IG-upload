@@ -7,6 +7,9 @@ export function Footer() {
       <div className="container-page flex flex-col gap-3 py-8 text-sm text-slate-500 dark:text-slate-400 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <p className="font-semibold text-slate-700 dark:text-slate-300">Before IG Upload</p>
+          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+            이 웹사이트는 <span className="font-medium text-slate-700 dark:text-slate-300">근감독</span>이 만들었습니다.
+          </p>
           <p className="mt-1 max-w-xl text-xs leading-relaxed">{SAFETY_NOTICE}</p>
         </div>
         <div className="flex items-center gap-4 text-xs">
