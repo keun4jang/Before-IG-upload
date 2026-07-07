@@ -10,11 +10,11 @@ export function Footer() {
           <p className="mt-1 max-w-xl text-xs leading-relaxed">{SAFETY_NOTICE}</p>
         </div>
         <div className="flex items-center gap-4 text-xs">
+          <Link href="/smcc" className="hover:text-brand-600">
+            SMCC
+          </Link>
           <Link href="/dashboard" className="hover:text-brand-600">
             대시보드
-          </Link>
-          <Link href="/settings" className="hover:text-brand-600">
-            설정
           </Link>
           <a
             href="https://github.com/keun4jang/before-ig-upload"
@@ -24,6 +24,10 @@ export function Footer() {
           >
             GitHub
           </a>
+          <span className="font-mono text-[11px] text-slate-400" title={`build ${process.env.NEXT_PUBLIC_BUILD_DATE ?? ''}`}>
+            v{process.env.NEXT_PUBLIC_APP_VERSION ?? '0.1.0'}
+            {process.env.NEXT_PUBLIC_APP_COMMIT ? ` · ${process.env.NEXT_PUBLIC_APP_COMMIT}` : ''}
+          </span>
         </div>
       </div>
     </footer>

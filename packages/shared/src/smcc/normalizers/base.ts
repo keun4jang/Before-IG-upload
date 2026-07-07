@@ -48,7 +48,7 @@ function canonLocation(raw: string): { kr: string; en: string } {
 function parseRoute(raw: string): RouteStop[] {
   if (!raw.trim()) return [];
   return raw
-    .split(/[→>\/·,\n]+/)
+    .split(/[→>/·,\n]+/)
     .map((s) => s.trim())
     .filter((s) => s.length > 0)
     .map((name) => ({ name }));

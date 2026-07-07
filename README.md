@@ -11,6 +11,8 @@
 
 **팀원에게 공유할 URL을 만들려면 👉 [DEPLOY.md](./DEPLOY.md)** (Vercel 몇 분 · 무료)
 
+**SMCC 운영 검수 모드 👉 [docs/SMCC.md](./docs/SMCC.md)** · 경로 `/smcc`
+
 </div>
 
 ---

@@ -16,6 +16,11 @@ export function Navbar() {
           </span>
         </Link>
         <nav className="flex items-center gap-1 sm:gap-2">
+          <Link href="/smcc">
+            <Button variant="ghost" size="sm">
+              SMCC
+            </Button>
+          </Link>
           <Link href="/dashboard">
             <Button variant="ghost" size="sm">
               대시보드
