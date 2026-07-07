@@ -3,6 +3,11 @@ import './globals.css';
 import { Navbar } from '@/components/navbar';
 import { Footer } from '@/components/footer';
 
+// 정적 캐시로 인해 새 배포가 늦게 반영되는 문제를 막기 위해 전체 앱을 매 요청마다
+// 새로 렌더링한다(운영툴 특성상 실시간 반영이 캐시 최적화보다 중요).
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
 export const metadata: Metadata = {
   title: {
     default: 'Before IG Upload — 인스타 업로드 전, 마지막 검수',
