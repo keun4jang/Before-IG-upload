@@ -7,6 +7,10 @@
 카드뉴스·캐러셀·캡션의 **오타 / 띄어쓰기 / 중복 표현 / 근거 기반 사실 검토**를 한 번에.
 한국어 텍스트 검수에 최적화된, 벤더에 종속되지 않는 오픈 웹앱.
 
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/keun4jang/before-ig-upload&root-directory=apps/web&project-name=before-ig-upload&repository-name=before-ig-upload)
+
+**팀원에게 공유할 URL을 만들려면 👉 [DEPLOY.md](./DEPLOY.md)** (Vercel 몇 분 · 무료)
+
 </div>
 
 ---
@@ -97,6 +101,8 @@ LLM_PROVIDER=openai      # OPENAI_API_KEY 필요
 ```
 
 ## 📦 배포
+
+> 📖 **단계별 가이드: [DEPLOY.md](./DEPLOY.md)** — 팀원에게 공유할 공개 URL 만들기 (Vercel/Render/Railway/Fly/self-host)
 
 `output: standalone` 과 provider adapter 구조 덕분에 **어디든** 배포 가능합니다.
 
