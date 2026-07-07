@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallbackRef } from '@/lib/use-callback-ref';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import {
   AlertTriangle,
@@ -16,10 +16,23 @@ import {
   Sparkles,
   Trash2,
 } from 'lucide-react';
-import type { AnalysisRun } from '@big/shared';
+import {
+  ANALYSIS_STEPS,
+  createId,
+  nowIso,
+  runAnalysis,
+  type AnalysisInput,
+  type AnalysisProgress,
+  type AnalysisResult,
+  type AnalysisRun,
+  type Asset,
+  type Issue,
+  type Slide,
+} from '@big/shared';
 import { Badge, Button, Card, CardContent, cn } from '@big/ui';
 import type { ProjectDetail } from '@/lib/store/types';
 import { api } from '@/lib/api-client';
+import { toJson, toMarkdown, toPrintableHtml } from '@/lib/services/report-service';
 import { ScoreRing } from './score-ring';
 import { Uploader, type PreparedImage } from './uploader';
 import { AnalysisProgressView } from './analysis-progress';
@@ -36,12 +49,20 @@ interface SlideVM {
   ocrConfidence: number | null;
 }
 
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * 검수 엔진은 순수 TS 라 브라우저에서 그대로 실행됩니다.
+ * 서버리스(Vercel) 환경에서도 100% 안정적으로 동작하도록 분석을 클라이언트에서 수행하고,
+ * 서버 저장은 "best-effort"(실패해도 UI 는 동작)로만 시도합니다.
+ */
 export function Workspace({ initial }: { initial: ProjectDetail }) {
   const projectId = initial.project.id;
   const [detail, setDetail] = useState<ProjectDetail>(initial);
   const [selected, setSelected] = useState(1);
   const [run, setRun] = useState<AnalysisRun | null>(initial.latestRun);
   const [analyzing, setAnalyzing] = useState(false);
+  const [progress, setProgress] = useState<AnalysisProgress | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
   const [captionText, setCaptionText] = useState(
     initial.caption?.editedText ?? initial.caption?.originalText ?? '',
@@ -66,94 +87,166 @@ export function Workspace({ initial }: { initial: ProjectDetail }) {
 
   const result = run?.status === 'succeeded' ? run.result : undefined;
 
-  async function reload() {
-    const fresh = await api.getProject(projectId);
-    setDetail(fresh);
+  function buildInput(): AnalysisInput {
+    return {
+      slides: slides.map((s) => ({
+        slideNumber: s.slideNumber,
+        text: s.editedText ?? s.rawText,
+        ocrConfidence: s.ocrConfidence ?? undefined,
+      })),
+      captionText: captionText.trim() ? captionText : undefined,
+      factCheckEnabled: true,
+    };
   }
-
-  // 분석 폴링
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const stopPolling = () => {
-    if (pollRef.current) clearInterval(pollRef.current);
-    pollRef.current = null;
-  };
-  useEffect(() => stopPolling, []);
 
   async function onRun() {
     setError(null);
+    if (slides.length === 0 && !captionText.trim()) {
+      setError('분석할 슬라이드 또는 캡션이 없어요.');
+      return;
+    }
     setAnalyzing(true);
+    const input = buildInput();
     try {
-      const { run: started } = await api.runAnalysis(projectId);
-      setRun(started);
-      stopPolling();
-      pollRef.current = setInterval(async () => {
-        try {
-          const { run: latest } = await api.getRun(started.id);
-          setRun(latest);
-          if (latest.status === 'succeeded' || latest.status === 'failed') {
-            stopPolling();
-            setAnalyzing(false);
-            if (latest.status === 'failed') setError(latest.error ?? '분석에 실패했어요.');
-            void reload();
-          }
-        } catch {
-          /* 폴링 오류는 다음 틱에서 재시도 */
-        }
-      }, 500);
+      // 분석은 백그라운드로 시작하고, 단계 애니메이션을 보여준 뒤 결과를 표시
+      const analysisPromise = runAnalysis(input);
+      for (const step of ANALYSIS_STEPS) {
+        setProgress({ step: step.step, percent: step.percent, message: step.label });
+        await sleep(260);
+      }
+      const analysisResult: AnalysisResult = await analysisPromise;
+      const finished = nowIso();
+      setRun({
+        id: createId('run'),
+        projectId,
+        status: 'succeeded',
+        startedAt: finished,
+        finishedAt: finished,
+        overallScore: analysisResult.score.overall,
+        result: analysisResult,
+        progress: { step: 'finalize', percent: 100, message: '완료' },
+      });
+      // best-effort: 서버 저장(DB 모드에서만 의미 있음)
+      api.runAnalysis(projectId).catch(() => {});
     } catch (err) {
+      setError(err instanceof Error ? err.message : '분석 중 문제가 발생했어요.');
+    } finally {
       setAnalyzing(false);
-      setError(err instanceof Error ? err.message : '분석을 시작하지 못했어요.');
+      setProgress(undefined);
     }
   }
 
-  async function addImages(images: PreparedImage[]) {
-    await api.addAssets(
+  function addImages(images: PreparedImage[]) {
+    const startOrder = detail.assets.length;
+    const startSlide = detail.slides.length;
+    const newAssets: Asset[] = images.map((img, i) => ({
+      id: createId('ast'),
       projectId,
-      images.map((i) => ({
-        fileName: i.fileName,
-        mimeType: i.mimeType,
-        previewUrl: i.previewUrl,
-        width: i.width,
-        height: i.height,
-        sizeBytes: i.sizeBytes,
-      })),
-    );
-    await reload();
+      fileName: img.fileName,
+      mimeType: img.mimeType,
+      storageKey: `mem/${i}`,
+      previewUrl: img.previewUrl,
+      width: img.width,
+      height: img.height,
+      sizeBytes: img.sizeBytes,
+      sortOrder: startOrder + i,
+    }));
+    const newSlides: Slide[] = newAssets.map((a, i) => ({
+      id: createId('sld'),
+      projectId,
+      assetId: a.id,
+      slideNumber: startSlide + i + 1,
+      ocrRawText: '',
+      ocrEditedText: null,
+      ocrConfidence: null,
+      textBlocks: [],
+    }));
+    setDetail((d) => ({ ...d, assets: [...d.assets, ...newAssets], slides: [...d.slides, ...newSlides] }));
+    setSelected(startSlide + 1);
+    api.addAssets(projectId, images.map((i) => ({ ...i }))).catch(() => {});
+    return Promise.resolve();
   }
 
-  async function removeSlide(assetId: string) {
+  function removeSlide(assetId: string) {
     if (!confirm('이 슬라이드를 삭제할까요?')) return;
-    await api.removeAsset(projectId, assetId);
-    await reload();
-    setSelected((s) => Math.max(1, Math.min(s, slides.length - 1)));
+    setDetail((d) => {
+      const assets = d.assets.filter((a) => a.id !== assetId).map((a, i) => ({ ...a, sortOrder: i }));
+      const slides = d.slides
+        .filter((s) => s.assetId !== assetId)
+        .sort((a, b) => a.slideNumber - b.slideNumber)
+        .map((s, i) => ({ ...s, slideNumber: i + 1 }));
+      return { ...d, assets, slides };
+    });
+    setSelected((s) => Math.max(1, s - 1));
+    api.removeAsset(projectId, assetId).catch(() => {});
   }
 
-  async function move(assetId: string, dir: -1 | 1) {
+  function move(assetId: string, dir: -1 | 1) {
     const ordered = slides.map((s) => s.assetId);
     const idx = ordered.indexOf(assetId);
     const next = idx + dir;
     if (next < 0 || next >= ordered.length) return;
     [ordered[idx], ordered[next]] = [ordered[next]!, ordered[idx]!];
-    await api.reorder(projectId, ordered);
-    await reload();
+    setDetail((d) => {
+      const rank = new Map(ordered.map((id, i) => [id, i]));
+      const assets = d.assets
+        .slice()
+        .sort((a, b) => (rank.get(a.id) ?? 0) - (rank.get(b.id) ?? 0))
+        .map((a, i) => ({ ...a, sortOrder: i }));
+      const slideByAsset = new Map(d.slides.map((s) => [s.assetId, s]));
+      const slides = ordered.map((id, i) => ({ ...slideByAsset.get(id)!, slideNumber: i + 1 }));
+      return { ...d, assets, slides };
+    });
+    api.reorder(projectId, ordered).catch(() => {});
   }
 
-  const saveSlideText = useCallbackRef(async (slideNumber: number, text: string) => {
-    await api.updateSlide(projectId, slideNumber, text);
+  const saveSlideText = useCallbackRef((slideNumber: number, text: string) => {
     setDetail((d) => ({
       ...d,
-      slides: d.slides.map((s) =>
-        s.slideNumber === slideNumber ? { ...s, ocrEditedText: text } : s,
-      ),
+      slides: d.slides.map((s) => (s.slideNumber === slideNumber ? { ...s, ocrEditedText: text } : s)),
     }));
+    api.updateSlide(projectId, slideNumber, text).catch(() => {});
   });
 
-  const saveCaption = useCallbackRef(async (text: string) => {
-    await api.updateCaption(projectId, { editedText: text });
+  const saveCaption = useCallbackRef((text: string) => {
+    api.updateCaption(projectId, { editedText: text }).catch(() => {});
   });
+
+  function toggleIssue(issueId: string, resolved: boolean) {
+    setRun((r) => {
+      if (!r?.result) return r;
+      const issues = r.result.issues.map((i) => (i.id === issueId ? { ...i, isResolved: resolved } : i));
+      const checklist = recomputeChecklist(r.result.checklist, issues);
+      return { ...r, result: { ...r.result, issues, checklist } };
+    });
+  }
+
+  function download(name: string, content: string, type: string) {
+    const blob = new Blob([content], { type });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = name;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function onExport(format: 'md' | 'json' | 'print') {
+    if (!result) return;
+    const base = `검수리포트-${detail.project.name}`;
+    if (format === 'md') download(`${base}.md`, toMarkdown(detail, result), 'text/markdown;charset=utf-8');
+    else if (format === 'json')
+      download(`${base}.json`, toJson(detail, result), 'application/json;charset=utf-8');
+    else {
+      const w = window.open('', '_blank');
+      if (w) {
+        w.document.write(toPrintableHtml(detail, result));
+        w.document.close();
+      }
+    }
+  }
 
   const current = slides.find((s) => s.slideNumber === selected) ?? slides[0];
-  const perSlideScore = result?.score.perSlide.find((p) => p.slideNumber === current?.slideNumber);
 
   return (
     <div className="container-page py-6">
@@ -171,7 +264,7 @@ export function Workspace({ initial }: { initial: ProjectDetail }) {
           )}
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          {result && <ExportMenu projectId={projectId} />}
+          {result && <ExportMenu onExport={onExport} />}
           <Button onClick={onRun} disabled={analyzing || slides.length === 0}>
             {result ? <RefreshCw className="h-4 w-4" /> : <Play className="h-4 w-4" />}
             {result ? '다시 검수' : '검수 시작'}
@@ -250,9 +343,7 @@ export function Workspace({ initial }: { initial: ProjectDetail }) {
                       {(s.editedText ?? s.rawText).slice(0, 20) || '텍스트 없음'}
                     </span>
                   </span>
-                  {sc && (
-                    <span className="text-xs font-semibold text-slate-400">{sc.score}</span>
-                  )}
+                  {sc && <span className="text-xs font-semibold text-slate-400">{sc.score}</span>}
                 </button>
               );
             })}
@@ -328,7 +419,7 @@ export function Workspace({ initial }: { initial: ProjectDetail }) {
               <label className="text-sm font-semibold">캡션</label>
               <p className="mb-2 text-xs text-slate-400">본문에 넣을 캡션도 함께 검수합니다.</p>
               <textarea
-                defaultValue={captionText}
+                value={captionText}
                 onChange={(e) => setCaptionText(e.target.value)}
                 onBlur={(e) => saveCaption(e.target.value)}
                 placeholder="캡션과 해시태그를 붙여넣으세요."
@@ -342,11 +433,11 @@ export function Workspace({ initial }: { initial: ProjectDetail }) {
         <div>
           <Card className="lg:sticky lg:top-20">
             <CardContent className="pt-5">
-              {analyzing || run?.status === 'running' || run?.status === 'queued' ? (
-                <AnalysisProgressView progress={run?.progress} />
+              {analyzing ? (
+                <AnalysisProgressView progress={progress} />
               ) : result ? (
                 <div className="flex h-[70vh] flex-col">
-                  <ResultsPanel runId={run!.id} result={result} onRunUpdated={setRun} />
+                  <ResultsPanel result={result} onToggle={toggleIssue} />
                 </div>
               ) : (
                 <div className="py-12 text-center">
@@ -365,14 +456,21 @@ export function Workspace({ initial }: { initial: ProjectDetail }) {
           </Card>
         </div>
       </div>
-      {perSlideScore && null}
     </div>
   );
 }
 
-function ExportMenu({ projectId }: { projectId: string }) {
+function recomputeChecklist(checklist: AnalysisResult['checklist'], issues: Issue[]) {
+  const factIssues = issues.filter((i) => i.category === 'fact');
+  const updated = checklist.map((c) =>
+    c.key === 'fact' ? { ...c, passed: factIssues.every((i) => i.isResolved) } : { ...c },
+  );
+  const ready = updated.filter((c) => c.key !== 'ready').every((c) => c.passed);
+  return updated.map((c) => (c.key === 'ready' ? { ...c, passed: ready } : c));
+}
+
+function ExportMenu({ onExport }: { onExport: (format: 'md' | 'json' | 'print') => void }) {
   const [open, setOpen] = useState(false);
-  const base = `/api/reports/${projectId}/export`;
   return (
     <div className="relative">
       <Button variant="outline" onClick={() => setOpen((o) => !o)}>
@@ -382,15 +480,15 @@ function ExportMenu({ projectId }: { projectId: string }) {
         <>
           <button className="fixed inset-0 z-10 cursor-default" onClick={() => setOpen(false)} aria-hidden />
           <div className="absolute right-0 z-20 mt-1 w-44 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg dark:border-slate-700 dark:bg-slate-900">
-            <a href={`${base}?format=md`} className={menuItem}>
+            <button className={menuItem} onClick={() => { onExport('md'); setOpen(false); }}>
               <FileText className="h-4 w-4" /> Markdown
-            </a>
-            <a href={`${base}?format=json`} className={menuItem}>
+            </button>
+            <button className={menuItem} onClick={() => { onExport('json'); setOpen(false); }}>
               <FileJson className="h-4 w-4" /> JSON
-            </a>
-            <a href={`${base}?format=print`} target="_blank" rel="noreferrer" className={menuItem}>
+            </button>
+            <button className={menuItem} onClick={() => { onExport('print'); setOpen(false); }}>
               <Printer className="h-4 w-4" /> 인쇄용 리포트
-            </a>
+            </button>
           </div>
         </>
       )}
@@ -399,4 +497,4 @@ function ExportMenu({ projectId }: { projectId: string }) {
 }
 
 const menuItem =
-  'flex items-center gap-2 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-800';
+  'flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-800';

@@ -7,35 +7,22 @@ import {
   SEVERITY_LABELS,
   VERDICT_HINTS,
   VERDICT_LABELS,
-  type AnalysisRun,
   type Issue,
 } from '@big/shared';
 import { Badge, Button, cn } from '@big/ui';
-import { api } from '@/lib/api-client';
 import { severityTone, verdictTone } from '@/lib/format';
 
 export function IssueCard({
   issue,
-  runId,
-  onUpdated,
+  onToggle,
 }: {
   issue: Issue;
-  runId: string;
-  onUpdated: (run: AnalysisRun) => void;
+  onToggle: (issueId: string, resolved: boolean) => void;
 }) {
-  const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState(false);
 
-  async function toggle() {
-    setBusy(true);
-    try {
-      const { run } = await api.toggleIssue(issue.id, runId, !issue.isResolved);
-      onUpdated(run);
-    } catch {
-      /* noop */
-    } finally {
-      setBusy(false);
-    }
+  function toggle() {
+    onToggle(issue.id, !issue.isResolved);
   }
 
   async function copy() {
@@ -122,7 +109,7 @@ export function IssueCard({
       )}
 
       <div className="mt-3 flex items-center gap-2">
-        <Button size="sm" variant={issue.isResolved ? 'outline' : 'secondary'} onClick={toggle} disabled={busy}>
+        <Button size="sm" variant={issue.isResolved ? 'outline' : 'secondary'} onClick={toggle}>
           {issue.isResolved ? (
             <>
               <Undo2 className="h-3.5 w-3.5" /> 되돌리기

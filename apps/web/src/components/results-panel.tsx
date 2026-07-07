@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import { CheckCircle2 } from 'lucide-react';
-import type { AnalysisResult, AnalysisRun, Issue, IssueCategory } from '@big/shared';
+import type { AnalysisResult, Issue, IssueCategory } from '@big/shared';
 import { cn } from '@big/ui';
 import { IssueCard } from './issue-card';
 
@@ -34,13 +34,11 @@ function matchesTab(issue: Issue, tab: TabKey): boolean {
 }
 
 export function ResultsPanel({
-  runId,
   result,
-  onRunUpdated,
+  onToggle,
 }: {
-  runId: string;
   result: AnalysisResult;
-  onRunUpdated: (run: AnalysisRun) => void;
+  onToggle: (issueId: string, resolved: boolean) => void;
 }) {
   const [tab, setTab] = useState<TabKey>('all');
   const [hideResolved, setHideResolved] = useState(false);
@@ -105,7 +103,7 @@ export function ResultsPanel({
           </div>
         ) : (
           filtered.map((issue) => (
-            <IssueCard key={issue.id} issue={issue} runId={runId} onUpdated={onRunUpdated} />
+            <IssueCard key={issue.id} issue={issue} onToggle={onToggle} />
           ))
         )}
       </div>
