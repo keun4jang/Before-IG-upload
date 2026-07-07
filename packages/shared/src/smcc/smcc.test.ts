@@ -141,3 +141,112 @@ describe('normalize + canonical (fixtures)', () => {
     expect(review.cardIssues.some((i) => i.category === 'fee-rule' && i.severity === 'error')).toBe(true);
   });
 });
+
+describe('실전 버그 재현: KR 카드에 영어 언어표기/영어 라벨 (이슈 없음으로 새는 문제)', () => {
+  const headers = ['접수시각', '날짜', '시간', '지역', '카페명', '주소', '호스트 아이디', '지점명', '색상'];
+  const row = [
+    '2026-06-20',
+    '7월 1일 수요일',
+    'AM 7:30',
+    '멜버른',
+    'BENCH COFFEE CO.',
+    '580 St Kilda Rd, Melbourne VIC 3004',
+    '@host_id',
+    '',
+    '#000000',
+  ];
+  const cardText = [
+    'Korean',
+    '멜버른',
+    '1인 1잔',
+    'AM7:30-AM8:30',
+    'Date',
+    '7월 1일 수요일',
+    'Meet at',
+    'BENCH COFFEE CO.',
+    '580 St Kilda Rd, Melbourne VIC 3004',
+    '데일리 커피 챗',
+  ].join('\n');
+
+  function buildEvent() {
+    return normalizeRow('daily-coffee-chat-kr', headers, row, {
+      sheetUrl: FIXTURES['daily-coffee-chat-kr'].url,
+      rowIndex: 0,
+      refDate: new Date('2026-06-20'),
+    });
+  }
+
+  it('KR 행사 + "Korean" 표기 => error', () => {
+    const review = reviewEvent(buildEvent(), cardText);
+    expect(
+      review.cardIssues.some(
+        (i) => i.category === 'language-mismatch' && i.severity === 'error' && i.actual === 'Korean',
+      ),
+    ).toBe(true);
+  });
+
+  it('KR 행사 + "Date" 영어 라벨 => error', () => {
+    const review = reviewEvent(buildEvent(), cardText);
+    expect(
+      review.cardIssues.some(
+        (i) => i.category === 'language-mismatch' && i.severity === 'error' && i.actual === 'Date',
+      ),
+    ).toBe(true);
+  });
+
+  it('KR 행사 + "Meet at" 영어 라벨 => error', () => {
+    const review = reviewEvent(buildEvent(), cardText);
+    expect(
+      review.cardIssues.some(
+        (i) => i.category === 'language-mismatch' && i.severity === 'error' && i.actual === 'Meet at',
+      ),
+    ).toBe(true);
+  });
+
+  it('mixed-language 경고도 함께 감지', () => {
+    const review = reviewEvent(buildEvent(), cardText);
+    expect(
+      review.cardIssues.some((i) => i.category === 'language-mismatch' && i.title === '한글 카드에 영어 혼용'),
+    ).toBe(true);
+  });
+
+  it('종합: 이 카드는 절대 "이슈 없음"이면 안 된다 (최소 3개 오류)', () => {
+    const review = reviewEvent(buildEvent(), cardText);
+    const errors = review.cardIssues.filter((i) => i.severity === 'error');
+    expect(review.cardIssues.length).toBeGreaterThan(0);
+    expect(errors.length).toBeGreaterThanOrEqual(3);
+  });
+
+  it('EN 행사에 한국어 프로그램명 => error (strict canonical mismatch)', () => {
+    const enHeaders = [
+      '타임스탬프',
+      'Preferred Date',
+      'Preferred Time',
+      'District/Area',
+      'Cafe Name',
+      'Branch',
+      'Street Address',
+      'Instagram ID',
+    ];
+    const enRow = ['2026-06-20', 'Jul 10', 'AM 7:30', 'Seongsu', 'Center Coffee', '', '66 Seongsui-ro', '@en_host'];
+    const e = normalizeRow('daily-coffee-chat-en', enHeaders, enRow, {
+      sheetUrl: FIXTURES['daily-coffee-chat-en'].url,
+      rowIndex: 0,
+      refDate: new Date('2026-06-20'),
+    });
+    const review = reviewEvent(e, 'Daily Coffee Chat\n데일리 커피 챗\nSeongsu\nMin. 1 Drink\n@en_host');
+    expect(
+      review.cardIssues.some((i) => i.category === 'language-mismatch' && i.severity === 'error'),
+    ).toBe(true);
+  });
+
+  it('strict canonical mismatch: 언어 라벨이 정답과 다르면 이슈 생성', () => {
+    const e = buildEvent();
+    const review = reviewEvent(e, cardText);
+    expect(
+      review.cardIssues.some(
+        (i) => i.category === 'source-mismatch' && i.expected === '한국어' && i.severity === 'error',
+      ),
+    ).toBe(true);
+  });
+});

@@ -1,6 +1,6 @@
 import type { CanonicalCardFields, NormalizedEvent, RawSmccIssue, SmccIssue } from '../schemas';
 import { scanBadCurrency, compareCardFee } from '../validators/fee';
-import { validateCardLanguage } from '../validators/language';
+import { validateCardLanguage, validateCardLabels, validateLanguageLabel } from '../validators/language';
 import { compareCardLocation } from '../validators/location';
 import { compareCardTime } from '../validators/time';
 import { compareCardDate } from '../validators/date';
@@ -48,6 +48,8 @@ export function validateCardText(
   const raw: RawSmccIssue[] = [
     ...scanBadCurrency(cardText),
     ...compareCardFee(e, cardText),
+    ...validateLanguageLabel(e, cardText),
+    ...validateCardLabels(e, cardText),
     ...validateCardLanguage(e, cardText),
     ...compareCardLocation(e, cardText),
     ...compareCardDate(e, cardText),
