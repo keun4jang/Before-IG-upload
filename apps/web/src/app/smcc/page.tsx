@@ -1,10 +1,11 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { RefreshCw } from 'lucide-react';
+import { Download, RefreshCw, Save, Trash2 } from 'lucide-react';
 import { smcc } from '@big/shared';
 import { Card, CardContent, cn } from '@big/ui';
 import { loadSheet, loadWork, saveWork, type SheetTable } from '@/lib/smcc-client';
+import { clearLogs, downloadLogs, logCount, saveSmccLog } from '@/lib/smcc-log';
 import { SourceSelector } from '@/components/smcc/source-selector';
 import { RowList, type RowSummary } from '@/components/smcc/row-list';
 import { FieldTable, type FieldRow } from '@/components/smcc/field-table';
@@ -44,8 +45,13 @@ export default function SmccPage() {
   const [selected, setSelected] = useState<number | null>(null);
 
   const [cardText, setCardText] = useState('');
+  const [cardImage, setCardImage] = useState<string | null>(null);
   const [resolved, setResolved] = useState<Set<string>>(new Set());
   const [memo, setMemo] = useState('');
+  const [logs, setLogs] = useState(0);
+  const [saved, setSaved] = useState(false);
+
+  useEffect(() => setLogs(logCount()), []);
 
   const sheetMeta = smcc.SHEET_SOURCES.find((s) => s.type === sheetType)!;
 
@@ -92,10 +98,30 @@ export default function SmccPage() {
   // 행 선택 시 저장된 작업 로드
   function selectRow(i: number) {
     setSelected(i);
-    const saved = loadWork(sheetType, i);
-    setCardText(saved?.cardText ?? '');
-    setResolved(new Set(saved?.resolved ?? []));
-    setMemo(saved?.memo ?? '');
+    const work = loadWork(sheetType, i);
+    setCardText(work?.cardText ?? '');
+    setResolved(new Set(work?.resolved ?? []));
+    setMemo(work?.memo ?? '');
+    setCardImage(null);
+  }
+
+  // 현재 검수 상태를 기록(로컬 + 서버 best-effort). 놓친 케이스 재현·수정용 데이터 수집.
+  function saveLog() {
+    if (!event || !review) return;
+    saveSmccLog({
+      sheetType,
+      rowIndex: selected,
+      cafeName: event.cafeName,
+      cardText,
+      imageDataUrl: cardImage ?? undefined,
+      memo,
+      event,
+      canonical: review.canonical,
+      issues: review.issues,
+    });
+    setLogs(logCount());
+    setSaved(true);
+    setTimeout(() => setSaved(false), 1500);
   }
 
   // 작업 자동 저장
@@ -147,6 +173,39 @@ export default function SmccPage() {
         </span>
         {message && <span className="text-[11px] text-slate-400">{message}</span>}
         <span className="ml-auto text-xs text-slate-400">{events.length}건</span>
+        {/* 데이터 수집: 검수 기록 저장 / 내보내기 / 비우기 */}
+        <div className="flex items-center gap-1">
+          <button
+            onClick={saveLog}
+            disabled={!event}
+            className="inline-flex items-center gap-1 rounded-md bg-smcc-500 px-2 py-1 text-xs font-medium text-white hover:bg-smcc-600 disabled:opacity-40"
+            title="현재 카드/입력/검출 이슈를 기록"
+          >
+            <Save className="h-3.5 w-3.5" /> {saved ? '저장됨' : '기록'}
+          </button>
+          <button
+            onClick={downloadLogs}
+            disabled={logs === 0}
+            className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-slate-500 hover:bg-slate-100 disabled:opacity-40 dark:hover:bg-slate-800"
+            title="수집한 기록 전체를 JSON 으로 내보내기"
+          >
+            <Download className="h-3.5 w-3.5" /> {logs}
+          </button>
+          {logs > 0 && (
+            <button
+              onClick={() => {
+                if (confirm('수집한 기록을 모두 지울까요?')) {
+                  clearLogs();
+                  setLogs(0);
+                }
+              }}
+              className="rounded-md px-1.5 py-1 text-slate-400 hover:bg-slate-100 hover:text-rose-600 dark:hover:bg-slate-800"
+              title="기록 비우기"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </button>
+          )}
+        </div>
       </div>
 
       {/* 본문 */}
@@ -189,7 +248,7 @@ export default function SmccPage() {
               </Card>
               <Card>
                 <CardContent className="pt-4">
-                  <CardReviewer value={cardText} onChange={setCardText} />
+                  <CardReviewer value={cardText} onChange={setCardText} onImageChange={setCardImage} />
                 </CardContent>
               </Card>
             </div>

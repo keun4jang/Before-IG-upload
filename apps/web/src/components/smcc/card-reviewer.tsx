@@ -7,9 +7,11 @@ import { Loader2 } from 'lucide-react';
 export function CardReviewer({
   value,
   onChange,
+  onImageChange,
 }: {
   value: string;
   onChange: (v: string) => void;
+  onImageChange?: (dataUrl: string | null) => void;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [preview, setPreview] = useState<string | null>(null);
@@ -21,7 +23,11 @@ export function CardReviewer({
   function onFile(file?: File) {
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = () => setPreview(reader.result as string);
+    reader.onload = () => {
+      const url = reader.result as string;
+      setPreview(url);
+      onImageChange?.(url);
+    };
     reader.readAsDataURL(file);
   }
 
