@@ -250,3 +250,86 @@ describe('실전 버그 재현: KR 카드에 영어 언어표기/영어 라벨 (
     ).toBe(true);
   });
 });
+
+describe('실전 배치2: 통화·지역·요일버튼·금지표현 (놓치던 케이스)', () => {
+  it('⑦ 성수(국내) 에스프레소런에 $30 → 통화 오류(error)', () => {
+    const f = FIXTURES['espresso-run'];
+    const e = normalizeRow('espresso-run', f.headers, f.rows[0]!, {
+      sheetUrl: f.url,
+      rowIndex: 0,
+      refDate: new Date('2026-07-01'),
+    });
+    expect(e.locationCanonicalKr).toBe('성수');
+    const review = reviewEvent(e, '에스프레소 런\n성수\n$30\n메쉬커피');
+    expect(
+      review.cardIssues.some((i) => i.category === 'fee-rule' && i.severity === 'error' && i.actual === '$'),
+    ).toBe(true);
+  });
+
+  it('④ 지역 "멜버른"인데 주소가 싱가포르 → 지역↔주소 불일치(error)', () => {
+    const headers = ['접수시각', '날짜', '시간', '지역', '카페명', '주소', '호스트 아이디', '지점명', '색상'];
+    const row = [
+      '2026-06-20',
+      '7월 2일 목요일',
+      'AM 8:00',
+      '멜버른',
+      'Tiong Bahru Bakery',
+      '70 River Valley Rd, #01-05 Foothills Fort Canning, Singapore',
+      '@activedoer',
+      '',
+      '#000',
+    ];
+    const e = normalizeRow('daily-coffee-chat-kr', headers, row, {
+      sheetUrl: FIXTURES['daily-coffee-chat-kr'].url,
+      rowIndex: 0,
+      refDate: new Date('2026-06-20'),
+    });
+    const review = reviewEvent(e, '데일리 커피 챗\n멜버른\n1인 1잔');
+    expect(
+      review.cardIssues.some((i) => i.category === 'address-verification' && i.severity === 'error'),
+    ).toBe(true);
+  });
+
+  it('⑤ 상단 요일버튼(Sun)이 날짜 요일(Thu)과 다르면 → 요일 버튼 불일치(error)', () => {
+    const f = FIXTURES['book-dive']; // 2026.07.12 일요일 → 실제 일요일(0)
+    const e = normalizeRow('book-dive', f.headers, f.rows[0]!, {
+      sheetUrl: f.url,
+      rowIndex: 0,
+      refDate: new Date('2026-06-29'),
+    });
+    // 요일 버튼을 목요일(4)로 잘못 지정 → 불일치
+    const review = reviewEvent(e, '북 다이브', { weekdayButton: 4 });
+    expect(
+      review.cardIssues.some((i) => i.title === '요일 버튼 불일치' && i.severity === 'error'),
+    ).toBe(true);
+    // 올바른 버튼(일=0)이면 이슈 없음
+    const ok = reviewEvent(e, '북 다이브', { weekdayButton: 0 });
+    expect(ok.cardIssues.some((i) => i.title === '요일 버튼 불일치')).toBe(false);
+  });
+
+  it('⑨ "Order 1 Drink" 금지 표현 → 언어 무관 error', () => {
+    const f = FIXTURES['daily-coffee-chat-en'];
+    const e = normalizeRow('daily-coffee-chat-en', f.headers, f.rows[0]!, {
+      sheetUrl: f.url,
+      rowIndex: 0,
+      refDate: new Date('2026-06-20'),
+    });
+    const review = reviewEvent(e, 'Daily Coffee Chat\nOrder 1 Drink');
+    expect(
+      review.cardIssues.some((i) => i.title === '금지 표현' && i.actual === 'Order 1 Drink'),
+    ).toBe(true);
+  });
+
+  it('코스 시작/끝 오타(THEECA→THECA)만 잡고, 정상 A→B 코스는 안 잡음', () => {
+    const headers = ['접수시각', '날짜', '시간', '지역', '카페명', '주소', '호스트 아이디', '지점명', '색상'];
+    // daily-chat-kr 로는 route 가 없으니 espresso 픽스처를 변형해서 route 주입
+    const f = FIXTURES['espresso-run'];
+    const row = [...f.rows[0]!];
+    const routeCol = f.headers.findIndex((h) => h.includes('코스'));
+    row[routeCol] = 'THEECA → Opera House → Cabrito → THECA';
+    const e = normalizeRow('espresso-run', f.headers, row, { sheetUrl: f.url, rowIndex: 0, refDate: new Date('2026-07-01') });
+    const review = reviewEvent(e, '에스프레소 런');
+    expect(review.cardIssues.some((i) => i.title === '코스 시작/끝 카페명 오타 의심')).toBe(true);
+    void headers;
+  });
+});

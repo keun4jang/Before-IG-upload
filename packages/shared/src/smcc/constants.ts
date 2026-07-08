@@ -7,12 +7,31 @@ export const MONTH_EN = [
   'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
 ];
 
-/** 지역 표준 표기 (KR/EN) */
-export const LOCATIONS: Array<{ kr: string; en: string; match: string[] }> = [
-  { kr: '성수', en: 'Seongsu', match: ['성수', 'seongsu'] },
-  { kr: '여의도', en: 'Yeouido', match: ['여의도', 'yeouido'] },
-  { kr: '멜버른', en: 'Melbourne', match: ['멜버른', 'melbourne'] },
-  { kr: '시드니', en: 'Sydney', match: ['시드니', 'sydney'] },
+/** 지역 표준 표기 (KR/EN) + 국내여부 + 주소에 나타나야 할 마커 */
+export const LOCATIONS: Array<{
+  kr: string;
+  en: string;
+  match: string[];
+  domestic: boolean;
+  /** 이 지역 카드의 주소에 통상 포함되는 토큰 (교차검증용) */
+  addressMarkers: string[];
+}> = [
+  { kr: '성수', en: 'Seongsu', match: ['성수', 'seongsu'], domestic: true, addressMarkers: ['성수', '성동', '서울', 'seongsu', 'seongdong', 'seoul'] },
+  { kr: '여의도', en: 'Yeouido', match: ['여의도', 'yeouido'], domestic: true, addressMarkers: ['여의도', '영등포', '서울', 'yeouido', 'yeongdeungpo', 'seoul'] },
+  { kr: '멜버른', en: 'Melbourne', match: ['멜버른', 'melbourne'], domestic: false, addressMarkers: ['melbourne', 'vic'] },
+  { kr: '시드니', en: 'Sydney', match: ['시드니', 'sydney'], domestic: false, addressMarkers: ['sydney', 'nsw'] },
+];
+
+/** 해외 주소에서 나타나는 다른 국가/도시 마커 (지역↔주소 불일치 탐지 보조) */
+export const FOREIGN_CITY_MARKERS = [
+  'singapore', '싱가포르',
+  'tokyo', '도쿄', '동경',
+  'osaka', '오사카',
+  'bangkok', '방콕',
+  'taipei', '타이베이', '대만',
+  'hongkong', 'hong kong', '홍콩',
+  'london', '런던',
+  'new york', 'newyork', '뉴욕',
 ];
 
 export const LANGUAGE_LABEL: Record<LanguageMode, string> = {

@@ -1,11 +1,21 @@
 import type { CanonicalCardFields, NormalizedEvent, RawSmccIssue, SmccIssue } from '../schemas';
-import { scanBadCurrency, compareCardFee } from '../validators/fee';
+import { scanBadCurrency, scanForbiddenCondition, compareCardFee } from '../validators/fee';
 import { validateCardLanguage, validateCardLabels, validateLanguageLabel } from '../validators/language';
 import { compareCardLocation } from '../validators/location';
 import { compareCardTime } from '../validators/time';
 import { compareCardDate } from '../validators/date';
 import { compareFields } from '../validators/card-compare';
+import {
+  validateAddressRegion,
+  validateRouteEndpoints,
+  validateWeekdayButton,
+} from '../validators/consistency';
 import { withIds } from './validate-event';
+
+export interface CardReviewOptions {
+  /** 카드 상단 요일 버튼 (0=일 ~ 6=토). 지정 시 날짜 요일과 교차검증. */
+  weekdayButton?: number | null;
+}
 
 function norm(s: string): string {
   return (s ?? '').toLowerCase().replace(/\s+/g, '');
@@ -43,10 +53,12 @@ export function validateCardText(
   e: NormalizedEvent,
   canonical: CanonicalCardFields,
   cardText: string,
+  options: CardReviewOptions = {},
 ): SmccIssue[] {
-  if (!cardText.trim()) return [];
+  if (!cardText.trim() && options.weekdayButton == null) return [];
   const raw: RawSmccIssue[] = [
     ...scanBadCurrency(cardText),
+    ...scanForbiddenCondition(cardText),
     ...compareCardFee(e, cardText),
     ...validateLanguageLabel(e, cardText),
     ...validateCardLabels(e, cardText),
@@ -56,6 +68,9 @@ export function validateCardText(
     ...compareCardTime(e, cardText),
     ...compareFields(e, canonical, cardText),
     ...validateAdditionalInfo(e, cardText),
+    ...validateAddressRegion(e, cardText),
+    ...validateRouteEndpoints(e),
+    ...validateWeekdayButton(e, options.weekdayButton),
   ];
   return withIds(raw, 'card');
 }

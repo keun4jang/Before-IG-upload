@@ -16,7 +16,7 @@ export * from './fixtures';
 import type { CanonicalCardFields, NormalizedEvent, SmccIssue } from './schemas';
 import { buildCanonicalCard } from './engine/build-canonical-card';
 import { validateEvent } from './engine/validate-event';
-import { validateCardText } from './engine/validate-card-text';
+import { validateCardText, type CardReviewOptions } from './engine/validate-card-text';
 
 export interface SmccReview {
   event: NormalizedEvent;
@@ -27,9 +27,16 @@ export interface SmccReview {
 }
 
 /** 이벤트(+선택적 카드텍스트) 종합 검수 */
-export function reviewEvent(e: NormalizedEvent, cardText = ''): SmccReview {
+export function reviewEvent(
+  e: NormalizedEvent,
+  cardText = '',
+  options: CardReviewOptions = {},
+): SmccReview {
   const canonical = buildCanonicalCard(e);
   const eventIssues = validateEvent(e);
-  const cardIssues = cardText.trim() ? validateCardText(e, canonical, cardText) : [];
+  const cardIssues =
+    cardText.trim() || options.weekdayButton != null
+      ? validateCardText(e, canonical, cardText, options)
+      : [];
   return { event: e, canonical, eventIssues, cardIssues, issues: [...eventIssues, ...cardIssues] };
 }

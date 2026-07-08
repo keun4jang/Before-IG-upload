@@ -46,6 +46,7 @@ export default function SmccPage() {
 
   const [cardText, setCardText] = useState('');
   const [cardImage, setCardImage] = useState<string | null>(null);
+  const [weekdayBtn, setWeekdayBtn] = useState<number | null>(null);
   const [resolved, setResolved] = useState<Set<string>>(new Set());
   const [memo, setMemo] = useState('');
   const [logs, setLogs] = useState(0);
@@ -91,8 +92,8 @@ export default function SmccPage() {
 
   const event = selected != null ? events[selected] : undefined;
   const review = useMemo(
-    () => (event ? smcc.reviewEvent(event, cardText) : null),
-    [event, cardText],
+    () => (event ? smcc.reviewEvent(event, cardText, { weekdayButton: weekdayBtn }) : null),
+    [event, cardText, weekdayBtn],
   );
 
   // 행 선택 시 저장된 작업 로드
@@ -103,6 +104,7 @@ export default function SmccPage() {
     setResolved(new Set(work?.resolved ?? []));
     setMemo(work?.memo ?? '');
     setCardImage(null);
+    setWeekdayBtn(null);
   }
 
   // 현재 검수 상태를 기록(로컬 + 서버 best-effort). 놓친 케이스 재현·수정용 데이터 수집.
@@ -248,6 +250,26 @@ export default function SmccPage() {
               </Card>
               <Card>
                 <CardContent className="pt-4">
+                  {/* 카드 상단 요일 버튼 — 날짜 요일과 교차검증 */}
+                  <div className="mb-3">
+                    <span className="mb-1 block text-xs font-semibold text-slate-500">요일 버튼</span>
+                    <div className="flex flex-wrap gap-1">
+                      {['일', '월', '화', '수', '목', '금', '토'].map((d, i) => (
+                        <button
+                          key={i}
+                          onClick={() => setWeekdayBtn((w) => (w === i ? null : i))}
+                          className={cn(
+                            'h-7 w-7 rounded-md text-xs font-medium transition',
+                            weekdayBtn === i
+                              ? 'bg-smcc-500 text-white'
+                              : 'bg-slate-100 text-slate-500 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700',
+                          )}
+                        >
+                          {d}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                   <CardReviewer value={cardText} onChange={setCardText} onImageChange={setCardImage} />
                 </CardContent>
               </Card>
