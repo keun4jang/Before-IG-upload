@@ -1,10 +1,9 @@
 import { execSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 
-// 빌드 시점의 git 정보로 자동 버전 생성.
-// 주의: Vercel 은 CI 빌드 시 얕은(shallow) git clone 을 쓰기 때문에
-// `git rev-list --count HEAD` 같은 "전체 히스토리 개수" 기반 값은 신뢰할 수 없다
-// (얕은 클론 깊이만큼만 세어져 항상 같은 값으로 고정되는 버그가 있었음).
-// HEAD 커밋 자체는 얕은 클론에서도 항상 존재하므로, 커밋 SHA + 빌드 날짜만 사용한다.
+// 버전 = 빌드 횟수(v1부터) + 날짜 + 커밋 해시.
+// 빌드 횟수는 커밋에 포함되는 build-number.json 에서 읽는다.
+// (Vercel 은 얕은 clone 이라 git 커밋 개수 세기가 불가능하므로, 파일로 관리.)
 function git(cmd, fallback) {
   try {
     return execSync(cmd, { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
@@ -12,10 +11,17 @@ function git(cmd, fallback) {
     return fallback;
   }
 }
+function buildNo() {
+  try {
+    return JSON.parse(readFileSync(new URL('./build-number.json', import.meta.url), 'utf8')).build;
+  } catch {
+    return 0;
+  }
+}
 // Vercel 이 주입하는 값을 최우선으로 사용(가장 신뢰 가능), 로컬 개발 시에만 git 명령으로 보완.
 const commitSha = (process.env.VERCEL_GIT_COMMIT_SHA ?? git('git rev-parse HEAD', 'dev')).slice(0, 7);
 const buildDate = new Date().toISOString().slice(0, 10);
-const appVersion = buildDate.replace(/-/g, '.');
+const appVersion = String(buildNo());
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {

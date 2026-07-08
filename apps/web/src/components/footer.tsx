@@ -53,6 +53,7 @@ export function Footer() {
           </a>
           <span className="font-mono text-[11px] text-slate-400" title={`build ${info.buildDate}`}>
             v{info.version}
+            {info.buildDate ? ` · ${info.buildDate}` : ''}
             {info.commit ? ` · ${info.commit}` : ''}
           </span>
         </div>
