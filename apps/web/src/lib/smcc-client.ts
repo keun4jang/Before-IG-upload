@@ -12,8 +12,14 @@ export async function loadSheet(
   try {
     const res = await fetch(`/api/smcc/sheet?url=${encodeURIComponent(url)}`);
     if (res.ok) {
-      const data = (await res.json()) as SheetTable;
-      if (data.rows.length > 0) return { table: data, source: 'live' };
+      const data = (await res.json()) as SheetTable & { tabsMerged?: string[] };
+      if (data.rows.length > 0) {
+        return {
+          table: { headers: data.headers, rows: data.rows },
+          source: 'live',
+          message: data.tabsMerged && data.tabsMerged.length > 1 ? `${data.tabsMerged.length}개 탭 통합` : undefined,
+        };
+      }
     }
     const err = (await res.json().catch(() => ({}))) as { error?: string };
     const fx = smcc.FIXTURES[sheetType];

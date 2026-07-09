@@ -33,6 +33,8 @@ export const env = {
   tavilyApiKey: process.env.TAVILY_API_KEY,
   serpapiApiKey: process.env.SERPAPI_API_KEY,
   googleVisionApiKey: process.env.GOOGLE_VISION_API_KEY,
+  /** 구글시트 안의 탭(gid) 목록을 자동으로 찾기 위한 읽기 전용 API 키. 없으면 지정된 gid 하나만 사용. */
+  googleSheetsApiKey: process.env.GOOGLE_SHEETS_API_KEY,
 
   authEnabled: bool(process.env.AUTH_ENABLED, false),
 };
