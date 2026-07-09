@@ -117,7 +117,9 @@ export function Workspace({ initial }: { initial: ProjectDetail }) {
   const sheetEvents: smcc.NormalizedEvent[] = useMemo(() => {
     if (!sheetType || sheetTabs.length === 0) return [];
     const src = smcc.SHEET_SOURCES.find((s) => s.type === sheetType)!;
-    return sheetTabs.flatMap((tab) => smcc.normalizeSheet(sheetType, src.url, tab.headers, tab.rows));
+    const events = sheetTabs.flatMap((tab) => smcc.normalizeSheet(sheetType, src.url, tab.headers, tab.rows));
+    // 날짜순으로 정렬해서 신청 건 선택 목록에서 원하는 날짜를 바로 찾을 수 있게 한다.
+    return events.slice().sort((a, b) => (a.dateIso ?? '9999').localeCompare(b.dateIso ?? '9999'));
   }, [sheetType, sheetTabs]);
 
   const linkedEvent = linkedRowIndex != null ? sheetEvents[linkedRowIndex] : undefined;
@@ -422,7 +424,7 @@ export function Workspace({ initial }: { initial: ProjectDetail }) {
                   <option value="">신청 건 선택</option>
                   {sheetEvents.map((ev, i) => (
                     <option key={i} value={i}>
-                      {[ev.cafeName, ev.dateRaw, ev.hostInstagram].filter(Boolean).join(' · ') || `행 ${i + 1}`}
+                      {[ev.dateRaw, ev.cafeName, ev.hostInstagram].filter(Boolean).join(' · ') || `행 ${i + 1}`}
                     </option>
                   ))}
                 </select>
