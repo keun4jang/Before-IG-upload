@@ -66,7 +66,11 @@ export function compareCardDate(e: NormalizedEvent, cardText: string): RawSmccIs
     });
   }
 
-  const cardWd = weekdayFromText(cardText);
+  // 요일은 카드 전체가 아니라 "월/일"이 적힌 줄에서만 찾는다. 카드 상단엔 항상
+  // "Mon Tue Wed Thu Fri Sat Sun" 같은 장식용 요일 선택 버튼 줄이 있는데, 이 줄까지 통째로
+  // 검사하면 실제 선택된 요일과 상관없이 맨 앞 단어(Mon)가 걸려 매번 오탐이 난다.
+  const dateLine = cardText.split('\n').find((line) => extractMonthDay(line) != null) ?? cardText;
+  const cardWd = weekdayFromText(dateLine);
   if (cardWd != null && e.weekdayExpected != null && cardWd !== e.weekdayExpected) {
     issues.push({
       category: 'date-rule',

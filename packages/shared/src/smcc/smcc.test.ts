@@ -333,6 +333,32 @@ describe('실전 배치2: 통화·지역·요일버튼·금지표현 (놓치던 
     expect(review.cardIssues.some((i) => i.title === '코스 시작/끝 카페명 오타 의심')).toBe(true);
     void headers;
   });
+
+  it('카드 상단 장식용 요일 버튼 줄("Mon Tue Wed...") 때문에 요일이 맞는데도 오탐이 나면 안 된다', () => {
+    const f = FIXTURES['daily-coffee-chat-kr'];
+    const e = normalizeRow('daily-coffee-chat-kr', f.headers, f.rows[0]!, {
+      sheetUrl: f.url,
+      rowIndex: 0,
+      refDate: new Date('2026-07-01'),
+    }); // 실제 날짜 "7월 8일 수요일" (수요일이 맞음)
+    // 카드 상단엔 항상 7개 요일이 전부 나열된 장식용 버튼 줄이 있고, 실제 선택된 요일은
+    // 그 아래 날짜 줄에 따로 적힌다 — 맨 앞 단어("Mon")만 보고 요일을 판단하면 안 된다.
+    const card = ['Mon Tue Wed Thu Fri Sat Sun', '데일리 커피 챗', '7월 8일 수요일'].join('\n');
+    const review = reviewEvent(e, card);
+    expect(review.cardIssues.some((i) => i.title === '요일 불일치')).toBe(false);
+  });
+
+  it('반대로 날짜 줄 자체의 요일이 실제와 다르면 여전히 잡아야 한다', () => {
+    const f = FIXTURES['daily-coffee-chat-kr'];
+    const e = normalizeRow('daily-coffee-chat-kr', f.headers, f.rows[0]!, {
+      sheetUrl: f.url,
+      rowIndex: 0,
+      refDate: new Date('2026-07-01'),
+    }); // 실제 날짜 "7월 8일 수요일"
+    const card = ['Mon Tue Wed Thu Fri Sat Sun', '데일리 커피 챗', '7월 8일 금요일'].join('\n');
+    const review = reviewEvent(e, card);
+    expect(review.cardIssues.some((i) => i.title === '요일 불일치' && i.actual === '금요일')).toBe(true);
+  });
 });
 
 describe('시트 없이 카드 단독 검수 (이미지/붙여넣기)', () => {
