@@ -56,9 +56,6 @@ export function Workspace({ initial }: { initial: ProjectDetail }) {
   const [captionText, setCaptionText] = useState(
     initial.caption?.editedText ?? initial.caption?.originalText ?? '',
   );
-  // OCR 로 텍스트가 갱신되면 uncontrolled textarea 를 강제로 다시 마운트시키기 위한 버전 값
-  const [ocrVersion, setOcrVersion] = useState(0);
-
   // 구글시트 연동(선택) — 신청 건(행)을 골라두면 그 시트 값을 기준(정답)으로 카드 전체를 검수한다.
   const [sheetType, setSheetType] = useState<smcc.SheetType | ''>('');
   const [sheetTable, setSheetTable] = useState<SheetTable>({ headers: [], rows: [] });
@@ -302,14 +299,6 @@ export function Workspace({ initial }: { initial: ProjectDetail }) {
     api.reorder(projectId, ordered).catch(() => {});
   }
 
-  const saveSlideText = useCallbackRef((slideNumber: number, text: string) => {
-    setDetail((d) => ({
-      ...d,
-      slides: d.slides.map((s) => (s.slideNumber === slideNumber ? { ...s, ocrEditedText: text } : s)),
-    }));
-    api.updateSlide(projectId, slideNumber, text).catch(() => {});
-  });
-
   const saveCaption = useCallbackRef((text: string) => {
     api.updateCaption(projectId, { editedText: text }).catch(() => {});
   });
@@ -365,7 +354,6 @@ export function Workspace({ initial }: { initial: ProjectDetail }) {
       ),
     }));
     api.updateSlide(projectId, slideNumber, text).catch(() => {});
-    setOcrVersion((v) => v + 1);
   }
 
   function toggleIssue(issueId: string, resolved: boolean) {
@@ -381,10 +369,17 @@ export function Workspace({ initial }: { initial: ProjectDetail }) {
   const statusLabel = errorCount > 0 ? '수정 필요' : warnCount > 0 ? '확인 권장' : '이상 없음';
   const statusTone = errorCount > 0 ? 'danger' : warnCount > 0 ? 'warning' : 'success';
 
+  // 왼쪽에서 고른 슬라이드의 결과만 보여준다. 캡션/전체/시트연동처럼 슬라이드 하나에 속하지
+  // 않는 항목은 어떤 슬라이드를 골라도 항상 함께 보여준다.
+  const currentScope = current ? `슬라이드 ${current.slideNumber}` : null;
+  const scopedIssues = displayIssues.filter(
+    (i) => !/^슬라이드 \d+$/.test(i.scope) || i.scope === currentScope,
+  );
+
   return (
     <div className="container-page py-6">
-      {/* 상단 바 */}
-      <div className="flex items-center justify-between gap-3">
+      {/* 상단 바: 왼쪽부터 순서대로 — 구글시트 연동 → 검수 시작하기 */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
         {hasResult ? (
           <div className="flex flex-wrap items-center gap-2">
             <Badge tone={statusTone}>{statusLabel}</Badge>
@@ -395,68 +390,74 @@ export function Workspace({ initial }: { initial: ProjectDetail }) {
         ) : (
           <span />
         )}
-        <Button onClick={onRun} disabled={analyzing}>
-          {analyzing && <Loader2 className="h-4 w-4 animate-spin" />}
-          검수 시작하기
-        </Button>
-      </div>
-
-      {/* 구글시트 연동(선택): 신청 건을 골라두면 그 값을 기준(정답)으로 카드 전체를 비교 검수한다 */}
-      <div className="mt-3 flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs">
-        <span className="font-medium text-slate-500">구글시트 연동</span>
-        <select
-          value={sheetType}
-          onChange={(e) => onSheetTypeChange(e.target.value as smcc.SheetType | '')}
-          className="rounded-md border border-slate-200 bg-white px-2 py-1 text-xs outline-none"
-        >
-          <option value="">연동 안 함</option>
-          {smcc.SHEET_SOURCES.map((s) => (
-            <option key={s.type} value={s.type}>
-              {s.label}
-            </option>
-          ))}
-        </select>
-        {sheetType && (
-          <>
+        <div className="ml-auto flex flex-wrap items-center gap-3">
+          {/* 1. 구글시트 연동(선택): 신청 건을 골라두면 그 값을 기준(정답)으로 카드 전체를 비교 검수한다 */}
+          <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-brand-200 bg-brand-50/50 px-4 py-3 text-sm">
+            <span className="flex h-6 w-6 items-center justify-center rounded-full bg-brand-500 text-xs font-semibold text-white">
+              1
+            </span>
+            <span className="font-semibold text-brand-800">구글시트 연동</span>
             <select
-              value={linkedRowIndex ?? ''}
-              onChange={(e) => setLinkedRowIndex(e.target.value === '' ? null : Number(e.target.value))}
-              disabled={sheetLoading || sheetEvents.length === 0}
-              className="max-w-[220px] rounded-md border border-slate-200 bg-white px-2 py-1 text-xs outline-none"
+              value={sheetType}
+              onChange={(e) => onSheetTypeChange(e.target.value as smcc.SheetType | '')}
+              className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm outline-none"
             >
-              <option value="">신청 건 선택</option>
-              {sheetEvents.map((ev, i) => (
-                <option key={i} value={i}>
-                  {[ev.cafeName, ev.dateRaw, ev.hostInstagram].filter(Boolean).join(' · ') || `행 ${i + 1}`}
+              <option value="">연동 안 함</option>
+              {smcc.SHEET_SOURCES.map((s) => (
+                <option key={s.type} value={s.type}>
+                  {s.label}
                 </option>
               ))}
             </select>
-            <button
-              type="button"
-              onClick={() => void loadSheetType(sheetType)}
-              className="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-slate-400 hover:bg-slate-100"
-              title="다시 불러오기"
-            >
-              <RefreshCw className={cn('h-3.5 w-3.5', sheetLoading && 'animate-spin')} />
-            </button>
-            {sheetSource && (
-              <span
-                className={cn(
-                  'rounded px-1.5 py-0.5 text-[11px]',
-                  sheetSource === 'live' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700',
+            {sheetType && (
+              <>
+                <select
+                  value={linkedRowIndex ?? ''}
+                  onChange={(e) => setLinkedRowIndex(e.target.value === '' ? null : Number(e.target.value))}
+                  disabled={sheetLoading || sheetEvents.length === 0}
+                  className="max-w-[240px] rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm outline-none"
+                >
+                  <option value="">신청 건 선택</option>
+                  {sheetEvents.map((ev, i) => (
+                    <option key={i} value={i}>
+                      {[ev.cafeName, ev.dateRaw, ev.hostInstagram].filter(Boolean).join(' · ') || `행 ${i + 1}`}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  onClick={() => void loadSheetType(sheetType)}
+                  className="inline-flex items-center gap-1 rounded-lg px-2 py-1.5 text-slate-400 hover:bg-white"
+                  title="다시 불러오기"
+                >
+                  <RefreshCw className={cn('h-4 w-4', sheetLoading && 'animate-spin')} />
+                </button>
+                {sheetSource && (
+                  <span
+                    className={cn(
+                      'rounded px-1.5 py-0.5 text-[11px]',
+                      sheetSource === 'live' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700',
+                    )}
+                  >
+                    {sheetSource === 'live' ? '실시간' : '예시'}
+                  </span>
                 )}
-              >
-                {sheetSource === 'live' ? '실시간' : '예시'}
+                {sheetMessage && <span className="text-xs text-slate-400">{sheetMessage}</span>}
+              </>
+            )}
+            {linkedEvent && (
+              <span className="font-medium text-brand-700">
+                연동됨: {linkedEvent.cafeName} · {linkedEvent.languageLabelExpected}
               </span>
             )}
-            {sheetMessage && <span className="text-slate-400">{sheetMessage}</span>}
-          </>
-        )}
-        {linkedEvent && (
-          <span className="ml-auto font-medium text-brand-600">
-            연동됨: {linkedEvent.cafeName} · {linkedEvent.languageLabelExpected}
-          </span>
-        )}
+          </div>
+
+          {/* 2. 검수 시작하기 */}
+          <Button onClick={onRun} disabled={analyzing} size="lg">
+            {analyzing && <Loader2 className="h-4 w-4 animate-spin" />}
+            검수 시작하기
+          </Button>
+        </div>
       </div>
 
       {error && (
@@ -526,22 +527,11 @@ export function Workspace({ initial }: { initial: ProjectDetail }) {
                     style={{ maxHeight: 340 }}
                   />
                 )}
-                <div className="mt-4">
-                  <div className="mb-1 flex items-center justify-between">
-                    {current.ocrConfidence != null && current.ocrConfidence < 0.5 ? (
-                      <Badge tone="warning">OCR 신뢰도 낮음</Badge>
-                    ) : (
-                      <span />
-                    )}
-                  </div>
-                  <textarea
-                    key={`${current.slideNumber}-${ocrVersion}`}
-                    defaultValue={current.editedText ?? current.rawText}
-                    onBlur={(e) => saveSlideText(current.slideNumber, e.target.value)}
-                    placeholder="이미지 속 텍스트를 입력하거나 붙여넣으세요."
-                    className="min-h-[120px] w-full resize-y rounded-lg border border-slate-200 bg-white p-3 text-sm outline-none focus:border-brand-400 focus:ring-2 focus:ring-brand-100"
-                  />
-                </div>
+                {current.ocrConfidence != null && current.ocrConfidence < 0.5 && (
+                  <Badge tone="warning" className="mt-3">
+                    OCR 신뢰도 낮음
+                  </Badge>
+                )}
               </CardContent>
             </Card>
           )}
@@ -568,7 +558,12 @@ export function Workspace({ initial }: { initial: ProjectDetail }) {
                 <AnalysisProgressView progress={progress} />
               ) : hasResult ? (
                 <div className="flex h-[70vh] flex-col">
-                  <ResultsPanel issues={displayIssues} resolvedIds={resolvedIds} onToggle={toggleIssue} />
+                  {current && (
+                    <p className="mb-2 text-xs font-medium text-slate-500">
+                      슬라이드 {current.slideNumber} 검수 결과
+                    </p>
+                  )}
+                  <ResultsPanel issues={scopedIssues} resolvedIds={resolvedIds} onToggle={toggleIssue} />
                 </div>
               ) : (
                 <p className="py-16 text-center text-sm text-slate-400">
