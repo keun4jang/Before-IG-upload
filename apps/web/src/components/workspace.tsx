@@ -2,7 +2,7 @@
 
 import { useCallbackRef } from '@/lib/use-callback-ref';
 import { useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, ChevronDown, ChevronUp, Loader2, ScanText, Trash2 } from 'lucide-react';
+import { AlertTriangle, ChevronDown, ChevronUp, Loader2, RefreshCw, Trash2 } from 'lucide-react';
 import {
   ANALYSIS_STEPS,
   createId,
@@ -21,6 +21,7 @@ import type { ProjectDetail } from '@/lib/store/types';
 import { api } from '@/lib/api-client';
 import { saveLocalProjectDetail } from '@/lib/local-projects';
 import { fromGeneralIssue, fromSmccIssue, sortIssues, type DisplayIssue } from '@/lib/unify-issues';
+import { loadSheet, type SheetTable } from '@/lib/smcc-client';
 import { Uploader, type PreparedImage } from './uploader';
 import { AnalysisProgressView } from './analysis-progress';
 import { ResultsPanel } from './results-panel';
@@ -55,11 +56,16 @@ export function Workspace({ initial }: { initial: ProjectDetail }) {
   const [captionText, setCaptionText] = useState(
     initial.caption?.editedText ?? initial.caption?.originalText ?? '',
   );
-  const [ocr, setOcr] = useState<{ slideNumber: number; running: boolean; error: string | null } | null>(
-    null,
-  );
   // OCR 로 텍스트가 갱신되면 uncontrolled textarea 를 강제로 다시 마운트시키기 위한 버전 값
   const [ocrVersion, setOcrVersion] = useState(0);
+
+  // 구글시트 연동(선택) — 신청 건(행)을 골라두면 그 시트 값을 기준(정답)으로 카드 전체를 검수한다.
+  const [sheetType, setSheetType] = useState<smcc.SheetType | ''>('');
+  const [sheetTable, setSheetTable] = useState<SheetTable>({ headers: [], rows: [] });
+  const [sheetLoading, setSheetLoading] = useState(false);
+  const [sheetSource, setSheetSource] = useState<'live' | 'fixture' | null>(null);
+  const [sheetMessage, setSheetMessage] = useState<string | undefined>();
+  const [linkedRowIndex, setLinkedRowIndex] = useState<number | null>(null);
 
   useEffect(() => {
     saveLocalProjectDetail({
@@ -89,6 +95,34 @@ export function Workspace({ initial }: { initial: ProjectDetail }) {
       });
   }, [detail]);
 
+  async function loadSheetType(type: smcc.SheetType) {
+    setSheetLoading(true);
+    setLinkedRowIndex(null);
+    const src = smcc.SHEET_SOURCES.find((s) => s.type === type)!;
+    const { table, source, message } = await loadSheet(type, src.url);
+    setSheetTable(table);
+    setSheetSource(source);
+    setSheetMessage(message);
+    setSheetLoading(false);
+  }
+
+  function onSheetTypeChange(type: smcc.SheetType | '') {
+    setSheetType(type);
+    setLinkedRowIndex(null);
+    setSheetTable({ headers: [], rows: [] });
+    setSheetSource(null);
+    setSheetMessage(undefined);
+    if (type) void loadSheetType(type);
+  }
+
+  const sheetEvents: smcc.NormalizedEvent[] = useMemo(() => {
+    if (!sheetType || sheetTable.rows.length === 0) return [];
+    const src = smcc.SHEET_SOURCES.find((s) => s.type === sheetType)!;
+    return smcc.normalizeSheet(sheetType, src.url, sheetTable.headers, sheetTable.rows);
+  }, [sheetType, sheetTable]);
+
+  const linkedEvent = linkedRowIndex != null ? sheetEvents[linkedRowIndex] : undefined;
+
   const generalResult = run?.status === 'succeeded' ? run.result : undefined;
   const hasResult = generalResult != null;
 
@@ -115,7 +149,21 @@ export function Workspace({ initial }: { initial: ProjectDetail }) {
     };
   }
 
+  /**
+   * 규칙 검수: 구글시트 행을 연동해뒀으면 그 행 값(정답)을 기준으로 카드 전체 텍스트를 비교 검수하고,
+   * 연동하지 않았으면 카드 텍스트만 보고 추론하는 방식(standalone)으로 대체 검수한다.
+   */
   function runRuleCheck(texts: Map<number, string>): DisplayIssue[] {
+    if (linkedEvent) {
+      const combined = [
+        ...slides.map((s) => texts.get(s.slideNumber) ?? s.editedText ?? s.rawText),
+        captionText,
+      ]
+        .filter((t) => t.trim())
+        .join('\n');
+      const { issues } = smcc.reviewEvent(linkedEvent, combined);
+      return issues.map((i) => fromSmccIssue('구글시트 연동', i));
+    }
     const out: DisplayIssue[] = [];
     for (const s of slides) {
       const text = texts.get(s.slideNumber) ?? s.editedText ?? s.rawText;
@@ -320,22 +368,6 @@ export function Workspace({ initial }: { initial: ProjectDetail }) {
     setOcrVersion((v) => v + 1);
   }
 
-  /** 슬라이드 하나를 다시 추출(수동 재시도용). 검수 시작 시에는 자동으로 실행되므로 평소엔 안 눌러도 된다. */
-  async function runOcr(slideNumber: number, imageDataUrl: string) {
-    setOcr({ slideNumber, running: true, error: null });
-    const result = await extractTextForSlide(imageDataUrl);
-    if (result) {
-      applySlideText(slideNumber, result.text, result.confidence);
-      setOcr({ slideNumber, running: false, error: null });
-      return;
-    }
-    setOcr({
-      slideNumber,
-      running: false,
-      error: '텍스트를 찾지 못했어요. 직접 입력해 주세요.',
-    });
-  }
-
   function toggleIssue(issueId: string, resolved: boolean) {
     setResolvedIds((prev) => {
       const next = new Set(prev);
@@ -367,6 +399,64 @@ export function Workspace({ initial }: { initial: ProjectDetail }) {
           {analyzing && <Loader2 className="h-4 w-4 animate-spin" />}
           검수 시작하기
         </Button>
+      </div>
+
+      {/* 구글시트 연동(선택): 신청 건을 골라두면 그 값을 기준(정답)으로 카드 전체를 비교 검수한다 */}
+      <div className="mt-3 flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs">
+        <span className="font-medium text-slate-500">구글시트 연동</span>
+        <select
+          value={sheetType}
+          onChange={(e) => onSheetTypeChange(e.target.value as smcc.SheetType | '')}
+          className="rounded-md border border-slate-200 bg-white px-2 py-1 text-xs outline-none"
+        >
+          <option value="">연동 안 함</option>
+          {smcc.SHEET_SOURCES.map((s) => (
+            <option key={s.type} value={s.type}>
+              {s.label}
+            </option>
+          ))}
+        </select>
+        {sheetType && (
+          <>
+            <select
+              value={linkedRowIndex ?? ''}
+              onChange={(e) => setLinkedRowIndex(e.target.value === '' ? null : Number(e.target.value))}
+              disabled={sheetLoading || sheetEvents.length === 0}
+              className="max-w-[220px] rounded-md border border-slate-200 bg-white px-2 py-1 text-xs outline-none"
+            >
+              <option value="">신청 건 선택</option>
+              {sheetEvents.map((ev, i) => (
+                <option key={i} value={i}>
+                  {[ev.cafeName, ev.dateRaw, ev.hostInstagram].filter(Boolean).join(' · ') || `행 ${i + 1}`}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              onClick={() => void loadSheetType(sheetType)}
+              className="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-slate-400 hover:bg-slate-100"
+              title="다시 불러오기"
+            >
+              <RefreshCw className={cn('h-3.5 w-3.5', sheetLoading && 'animate-spin')} />
+            </button>
+            {sheetSource && (
+              <span
+                className={cn(
+                  'rounded px-1.5 py-0.5 text-[11px]',
+                  sheetSource === 'live' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700',
+                )}
+              >
+                {sheetSource === 'live' ? '실시간' : '예시'}
+              </span>
+            )}
+            {sheetMessage && <span className="text-slate-400">{sheetMessage}</span>}
+          </>
+        )}
+        {linkedEvent && (
+          <span className="ml-auto font-medium text-brand-600">
+            연동됨: {linkedEvent.cafeName} · {linkedEvent.languageLabelExpected}
+          </span>
+        )}
       </div>
 
       {error && (
@@ -443,25 +533,7 @@ export function Workspace({ initial }: { initial: ProjectDetail }) {
                     ) : (
                       <span />
                     )}
-                    {current.previewUrl && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => runOcr(current.slideNumber, current.previewUrl!)}
-                        disabled={ocr?.slideNumber === current.slideNumber && ocr.running}
-                      >
-                        {ocr?.slideNumber === current.slideNumber && ocr.running ? (
-                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                        ) : (
-                          <ScanText className="h-3.5 w-3.5" />
-                        )}
-                        이미지에서 추출
-                      </Button>
-                    )}
                   </div>
-                  {ocr?.slideNumber === current.slideNumber && ocr.error && (
-                    <p className="mb-1 text-xs text-rose-600">{ocr.error}</p>
-                  )}
                   <textarea
                     key={`${current.slideNumber}-${ocrVersion}`}
                     defaultValue={current.editedText ?? current.rawText}
