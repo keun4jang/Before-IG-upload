@@ -103,11 +103,11 @@ export function Workspace({ initial }: { initial: ProjectDetail }) {
   const warnCount = openIssues.filter((i) => i.severity === 'warning').length;
   const infoCount = openIssues.filter((i) => i.severity === 'info').length;
 
-  function buildInput(): AnalysisInput {
+  function buildInput(texts: Map<number, string>): AnalysisInput {
     return {
       slides: slides.map((s) => ({
         slideNumber: s.slideNumber,
-        text: s.editedText ?? s.rawText,
+        text: texts.get(s.slideNumber) ?? s.editedText ?? s.rawText,
         ocrConfidence: s.ocrConfidence ?? undefined,
       })),
       captionText: captionText.trim() ? captionText : undefined,
@@ -115,10 +115,10 @@ export function Workspace({ initial }: { initial: ProjectDetail }) {
     };
   }
 
-  function runRuleCheck(): DisplayIssue[] {
+  function runRuleCheck(texts: Map<number, string>): DisplayIssue[] {
     const out: DisplayIssue[] = [];
     for (const s of slides) {
-      const text = s.editedText ?? s.rawText;
+      const text = texts.get(s.slideNumber) ?? s.editedText ?? s.rawText;
       if (!text.trim()) continue;
       const { issues } = smcc.analyzeStandaloneCard(text);
       for (const i of issues) out.push(fromSmccIssue(`슬라이드 ${s.slideNumber}`, i));
@@ -130,25 +130,44 @@ export function Workspace({ initial }: { initial: ProjectDetail }) {
     return out;
   }
 
+  /** 이미지 → 텍스트. 비전 AI(설정된 경우) 우선, 안 되면 로컬 OCR. 상태는 건드리지 않는 순수 함수. */
+  async function extractTextForSlide(imageDataUrl: string): Promise<{ text: string; confidence: number } | null> {
+    const visionText = await tryVisionExtract(imageDataUrl);
+    if (visionText) return { text: visionText, confidence: 0.95 };
+    return tryTesseractExtract(imageDataUrl);
+  }
+
   async function onRun() {
     setError(null);
-    const hasEmptySlideText = slides.some((s) => !(s.editedText ?? s.rawText).trim());
     if (slides.length === 0 && !captionText.trim()) {
       setError('이미지 또는 캡션을 먼저 입력하세요.');
       return;
     }
-    if (hasEmptySlideText) {
-      setError('텍스트가 비어 있는 슬라이드가 있어요. OCR 추출 또는 직접 입력 후 다시 시도하세요.');
-      return;
-    }
     setAnalyzing(true);
     setResolvedIds(new Set());
-    const input = buildInput();
     try {
+      // 1) 텍스트가 없는 슬라이드는 버튼 없이 자동으로 이미지에서 읽어온다.
+      const finalTexts = new Map<number, string>();
+      const needsExtract = slides.filter((s) => !(s.editedText ?? s.rawText).trim() && s.previewUrl);
+      for (let i = 0; i < needsExtract.length; i++) {
+        const s = needsExtract[i]!;
+        setProgress({
+          step: 'ocr',
+          percent: Math.round(((i + 1) / needsExtract.length) * 20),
+          message: `이미지에서 텍스트 읽는 중 (${i + 1}/${needsExtract.length})`,
+        });
+        const result = await extractTextForSlide(s.previewUrl!);
+        if (result) {
+          finalTexts.set(s.slideNumber, result.text);
+          applySlideText(s.slideNumber, result.text, result.confidence);
+        }
+      }
+
+      const input = buildInput(finalTexts);
       const analysisPromise = runAnalysis(input);
       for (const step of ANALYSIS_STEPS) {
         setProgress({ step: step.step, percent: step.percent, message: step.label });
-        await sleep(200);
+        await sleep(150);
       }
       const analysisResult: AnalysisResult = await analysisPromise;
       const finished = nowIso();
@@ -162,7 +181,7 @@ export function Workspace({ initial }: { initial: ProjectDetail }) {
         result: analysisResult,
         progress: { step: 'finalize', percent: 100, message: '완료' },
       });
-      setRuleIssues(runRuleCheck());
+      setRuleIssues(runRuleCheck(finalTexts));
       api.runAnalysis(projectId).catch(() => {});
     } catch (err) {
       setError(err instanceof Error ? err.message : '검수 중 문제가 발생했어요.');
@@ -301,25 +320,15 @@ export function Workspace({ initial }: { initial: ProjectDetail }) {
     setOcrVersion((v) => v + 1);
   }
 
+  /** 슬라이드 하나를 다시 추출(수동 재시도용). 검수 시작 시에는 자동으로 실행되므로 평소엔 안 눌러도 된다. */
   async function runOcr(slideNumber: number, imageDataUrl: string) {
     setOcr({ slideNumber, running: true, error: null });
-
-    // 1순위: 이미지 자체를 이해하는 비전 AI (설정된 경우) — 장식 요소를 걸러내고 의미 있는 텍스트만 정리해 준다.
-    const visionText = await tryVisionExtract(imageDataUrl);
-    if (visionText) {
-      applySlideText(slideNumber, visionText, 0.95);
+    const result = await extractTextForSlide(imageDataUrl);
+    if (result) {
+      applySlideText(slideNumber, result.text, result.confidence);
       setOcr({ slideNumber, running: false, error: null });
       return;
     }
-
-    // 2순위: 로컬 OCR (키 불필요, 항상 동작하는 기본값)
-    const ocrResult = await tryTesseractExtract(imageDataUrl);
-    if (ocrResult) {
-      applySlideText(slideNumber, ocrResult.text, ocrResult.confidence);
-      setOcr({ slideNumber, running: false, error: null });
-      return;
-    }
-
     setOcr({
       slideNumber,
       running: false,
