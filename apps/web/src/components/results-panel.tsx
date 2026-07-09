@@ -2,19 +2,21 @@
 
 import { useState } from 'react';
 import { CheckCircle2 } from 'lucide-react';
-import type { AnalysisResult } from '@big/shared';
+import type { DisplayIssue } from '@/lib/unify-issues';
 import { IssueCard } from './issue-card';
 
 export function ResultsPanel({
-  result,
+  issues,
+  resolvedIds,
   onToggle,
 }: {
-  result: AnalysisResult;
+  issues: DisplayIssue[];
+  resolvedIds: Set<string>;
   onToggle: (issueId: string, resolved: boolean) => void;
 }) {
   const [hideResolved, setHideResolved] = useState(false);
 
-  const filtered = hideResolved ? result.issues.filter((i) => !i.isResolved) : result.issues;
+  const filtered = hideResolved ? issues.filter((i) => !resolvedIds.has(i.id)) : issues;
 
   return (
     <div className="flex h-full flex-col">
@@ -35,7 +37,14 @@ export function ResultsPanel({
             <p className="mt-3 text-sm">발견된 문제가 없어요.</p>
           </div>
         ) : (
-          filtered.map((issue) => <IssueCard key={issue.id} issue={issue} onToggle={onToggle} />)
+          filtered.map((issue) => (
+            <IssueCard
+              key={issue.id}
+              issue={issue}
+              resolved={resolvedIds.has(issue.id)}
+              onToggle={onToggle}
+            />
+          ))
         )}
       </div>
     </div>
