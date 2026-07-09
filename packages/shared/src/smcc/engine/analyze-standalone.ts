@@ -67,14 +67,17 @@ export function inferEventFromCard(cardText: string): NormalizedEvent {
   }
   const config = PROGRAM_CONFIG[programType];
 
-  // 언어 추론: 프로그램명 언어가 가장 강한 신호. 없으면 한글/영문 비중.
+  // 언어 추론: 프로그램명 언어가 가장 강한 신호. 없으면 한글 포함 여부로 판단한다.
+  // 카페 주소·호스트 아이디(@handle)는 한국어 진행 카드에서도 원문(영문) 그대로 유지되는 게
+  // 정상이라 라틴 문자가 많아지기 쉽다 — 라틴/한글 "비중"으로 비교하면 OCR이 프로그램명 한글을
+  // 놓쳤을 때 영문 카드로 잘못 뒤집히므로, 한글이 하나라도 있으면 한국어 진행으로 판단한다.
   let languageMode: LanguageMode;
   if (krNameHit) languageMode = 'KR';
   else if (enNameHit) languageMode = 'EN';
   else {
-    const hangul = (cardText.match(/[가-힣]/g) ?? []).length;
-    const latin = (cardText.match(/[A-Za-z]/g) ?? []).length;
-    languageMode = hangul >= latin ? 'KR' : 'EN';
+    const withoutHandles = cardText.replace(/@[A-Za-z0-9_.]+/g, '');
+    const hangul = (withoutHandles.match(/[가-힣]/g) ?? []).length;
+    languageMode = hangul > 0 ? 'KR' : 'EN';
   }
 
   // 지역 추론

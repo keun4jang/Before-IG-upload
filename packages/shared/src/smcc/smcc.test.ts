@@ -386,4 +386,25 @@ describe('시트 없이 카드 단독 검수 (이미지/붙여넣기)', () => {
     const { issues } = analyzeStandaloneCard(card);
     expect(issues.filter((i) => i.severity === 'error').length).toBe(0);
   });
+
+  it('OCR이 한글 프로그램명을 놓쳐도 영문 주소/호스트 때문에 EN으로 뒤집히면 안 된다', () => {
+    // "데일리 커피 챗" 을 못 읽은 것처럼(krNameHit 실패) OCR 노이즈만 남기고, 나머지는
+    // 실제 Russell 카드처럼 영문 주소/호스트/카페명 비중이 큰 상태를 재현.
+    const card = [
+      'Russell @russelltiger',
+      'Korean',
+      '멜버른',
+      'AM 7:30- AM 8:30',
+      'Date',
+      '7월 1일 수요일',
+      'Meet at',
+      'BENCH COFFEE CO.',
+      '580 St Kilda Rd, Melbourne VIC 3004',
+    ].join('\n');
+    const { event, issues } = analyzeStandaloneCard(card);
+    expect(event.languageMode).toBe('KR');
+    expect(
+      issues.some((i) => i.category === 'language-mismatch' && i.actual === 'Korean' && i.expected === '한국어'),
+    ).toBe(true);
+  });
 });
