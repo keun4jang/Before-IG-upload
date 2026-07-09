@@ -247,11 +247,27 @@ export function Workspace({ initial }: { initial: ProjectDetail }) {
     api.updateCaption(projectId, { editedText: text }).catch(() => {});
   });
 
-  async function runOcr(slideNumber: number, imageDataUrl: string) {
-    setOcr({ slideNumber, running: true, error: null });
+  /** 이미지를 직접 이해하는 비전 LLM 시도(설정된 경우). 미설정/실패 시 null. */
+  async function tryVisionExtract(imageDataUrl: string): Promise<string | null> {
     try {
-      // 워커/엔진/언어데이터를 전부 자체 호스팅(public/tesseract, public/tessdata)해서
-      // 외부 CDN 장애와 무관하게 동작시킨다.
+      const res = await fetch('/api/vision/extract', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ imageDataUrl }),
+      });
+      if (!res.ok) return null;
+      const data = (await res.json()) as { available: boolean; text?: string };
+      if (!data.available) return null;
+      const text = (data.text ?? '').trim();
+      return text || null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** 로컬 OCR(자체 호스팅, 키 불필요). 글자 단위 인식이라 장식 요소도 함께 뽑힐 수 있음. */
+  async function tryTesseractExtract(imageDataUrl: string): Promise<{ text: string; confidence: number } | null> {
+    try {
       const Tesseract = (await import('tesseract.js')).default;
       const timeout = new Promise<never>((_, reject) =>
         setTimeout(() => reject(new Error('timeout')), 45000),
@@ -265,32 +281,50 @@ export function Workspace({ initial }: { initial: ProjectDetail }) {
         timeout,
       ]);
       const text = (data.text ?? '').trim();
-      if (!text) {
-        setOcr({
-          slideNumber,
-          running: false,
-          error: '텍스트를 찾지 못했어요. 직접 입력해 주세요.',
-        });
-        return;
-      }
-      setDetail((d) => ({
-        ...d,
-        slides: d.slides.map((s) =>
-          s.slideNumber === slideNumber
-            ? { ...s, ocrRawText: text, ocrEditedText: text, ocrConfidence: (data.confidence ?? 50) / 100 }
-            : s,
-        ),
-      }));
-      api.updateSlide(projectId, slideNumber, text).catch(() => {});
-      setOcr({ slideNumber, running: false, error: null });
-      setOcrVersion((v) => v + 1);
+      if (!text) return null;
+      return { text, confidence: (data.confidence ?? 50) / 100 };
     } catch {
-      setOcr({
-        slideNumber,
-        running: false,
-        error: '자동 추출에 실패했어요. 직접 입력해 주세요.',
-      });
+      return null;
     }
+  }
+
+  function applySlideText(slideNumber: number, text: string, confidence: number) {
+    setDetail((d) => ({
+      ...d,
+      slides: d.slides.map((s) =>
+        s.slideNumber === slideNumber
+          ? { ...s, ocrRawText: text, ocrEditedText: text, ocrConfidence: confidence }
+          : s,
+      ),
+    }));
+    api.updateSlide(projectId, slideNumber, text).catch(() => {});
+    setOcrVersion((v) => v + 1);
+  }
+
+  async function runOcr(slideNumber: number, imageDataUrl: string) {
+    setOcr({ slideNumber, running: true, error: null });
+
+    // 1순위: 이미지 자체를 이해하는 비전 AI (설정된 경우) — 장식 요소를 걸러내고 의미 있는 텍스트만 정리해 준다.
+    const visionText = await tryVisionExtract(imageDataUrl);
+    if (visionText) {
+      applySlideText(slideNumber, visionText, 0.95);
+      setOcr({ slideNumber, running: false, error: null });
+      return;
+    }
+
+    // 2순위: 로컬 OCR (키 불필요, 항상 동작하는 기본값)
+    const ocrResult = await tryTesseractExtract(imageDataUrl);
+    if (ocrResult) {
+      applySlideText(slideNumber, ocrResult.text, ocrResult.confidence);
+      setOcr({ slideNumber, running: false, error: null });
+      return;
+    }
+
+    setOcr({
+      slideNumber,
+      running: false,
+      error: '텍스트를 찾지 못했어요. 직접 입력해 주세요.',
+    });
   }
 
   function toggleIssue(issueId: string, resolved: boolean) {
