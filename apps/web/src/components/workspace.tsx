@@ -21,7 +21,7 @@ import type { ProjectDetail } from '@/lib/store/types';
 import { api } from '@/lib/api-client';
 import { saveLocalProjectDetail } from '@/lib/local-projects';
 import { fromGeneralIssue, fromSmccIssue, sortIssues, type DisplayIssue } from '@/lib/unify-issues';
-import { loadSheet, type SheetTable } from '@/lib/smcc-client';
+import { loadSheet, type SheetTab } from '@/lib/smcc-client';
 import { Uploader, type PreparedImage } from './uploader';
 import { AnalysisProgressView } from './analysis-progress';
 import { ResultsPanel } from './results-panel';
@@ -58,7 +58,7 @@ export function Workspace({ initial }: { initial: ProjectDetail }) {
   );
   // 구글시트 연동(선택) — 신청 건(행)을 골라두면 그 시트 값을 기준(정답)으로 카드 전체를 검수한다.
   const [sheetType, setSheetType] = useState<smcc.SheetType | ''>('');
-  const [sheetTable, setSheetTable] = useState<SheetTable>({ headers: [], rows: [] });
+  const [sheetTabs, setSheetTabs] = useState<SheetTab[]>([]);
   const [sheetLoading, setSheetLoading] = useState(false);
   const [sheetSource, setSheetSource] = useState<'live' | 'fixture' | null>(null);
   const [sheetMessage, setSheetMessage] = useState<string | undefined>();
@@ -96,8 +96,8 @@ export function Workspace({ initial }: { initial: ProjectDetail }) {
     setSheetLoading(true);
     setLinkedRowIndex(null);
     const src = smcc.SHEET_SOURCES.find((s) => s.type === type)!;
-    const { table, source, message } = await loadSheet(type, src.url);
-    setSheetTable(table);
+    const { tabs, source, message } = await loadSheet(type, src.url);
+    setSheetTabs(tabs);
     setSheetSource(source);
     setSheetMessage(message);
     setSheetLoading(false);
@@ -106,17 +106,19 @@ export function Workspace({ initial }: { initial: ProjectDetail }) {
   function onSheetTypeChange(type: smcc.SheetType | '') {
     setSheetType(type);
     setLinkedRowIndex(null);
-    setSheetTable({ headers: [], rows: [] });
+    setSheetTabs([]);
     setSheetSource(null);
     setSheetMessage(undefined);
     if (type) void loadSheetType(type);
   }
 
+  // 탭마다 열 구성이 달라도(원본 응답 탭 vs 캡션 작성용 탭 등) 각 탭을 자기 헤더 기준으로
+  // 정규화한 뒤 합친다 — 하나의 표로 강제로 합치면 열 개수가 다른 탭의 데이터가 통째로 빠진다.
   const sheetEvents: smcc.NormalizedEvent[] = useMemo(() => {
-    if (!sheetType || sheetTable.rows.length === 0) return [];
+    if (!sheetType || sheetTabs.length === 0) return [];
     const src = smcc.SHEET_SOURCES.find((s) => s.type === sheetType)!;
-    return smcc.normalizeSheet(sheetType, src.url, sheetTable.headers, sheetTable.rows);
-  }, [sheetType, sheetTable]);
+    return sheetTabs.flatMap((tab) => smcc.normalizeSheet(sheetType, src.url, tab.headers, tab.rows));
+  }, [sheetType, sheetTabs]);
 
   const linkedEvent = linkedRowIndex != null ? sheetEvents[linkedRowIndex] : undefined;
 
