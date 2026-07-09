@@ -105,32 +105,38 @@ export function compareCardFee(e: NormalizedEvent, cardText: string): RawSmccIss
         resolutionHint: '코스 카페 수/지역/언어에 따른 금액을 확인하세요.',
       });
     }
-    // 통화 ↔ 지역 규칙: 국내 지역은 원화, 달러($)는 해외 진행에만.
-    const usdInCard = /\$\s?\d|\d\s*달러/.test(cardText);
-    const wonInCard = /\d[\d,]*\s*원/.test(cardText);
-    const domestic = isDomesticRegion(e);
-    if (usdInCard && domestic === true) {
-      issues.push({
-        category: 'fee-rule',
-        severity: 'error',
-        title: '통화 오류 (국내 지역에 달러)',
-        description: `${e.locationCanonicalKr}(국내)는 원화로 표기해야 합니다. 달러($)는 해외 진행에만 사용합니다.`,
-        expected: '원(₩)',
-        actual: '$',
-        confidence: 0.85,
-        resolutionHint: '금액을 원화로 바꾸세요.',
-      });
-    }
-    if (wonInCard && domestic === false) {
-      issues.push({
-        category: 'fee-rule',
-        severity: 'warning',
-        title: '통화 확인 (해외 지역에 원화)',
-        description: `${e.locationCanonicalKr}(해외)에 원화 표기가 있습니다. 현지 통화가 맞는지 확인하세요.`,
-        actual: '원',
-        confidence: 0.6,
-      });
-    }
+    issues.push(...checkCurrencyRegion(e, cardText));
+  }
+  return issues;
+}
+
+/** 통화 ↔ 지역 규칙: 국내 지역은 원화, 달러($)는 해외 진행에만. (단독 검수에서도 재사용) */
+export function checkCurrencyRegion(e: NormalizedEvent, cardText: string): RawSmccIssue[] {
+  const issues: RawSmccIssue[] = [];
+  const usdInCard = /\$\s?\d|\d\s*달러/.test(cardText);
+  const wonInCard = /\d[\d,]*\s*원/.test(cardText);
+  const domestic = isDomesticRegion(e);
+  if (usdInCard && domestic === true) {
+    issues.push({
+      category: 'fee-rule',
+      severity: 'error',
+      title: '통화 오류 (국내 지역에 달러)',
+      description: `${e.locationCanonicalKr}(국내)는 원화로 표기해야 합니다. 달러($)는 해외 진행에만 사용합니다.`,
+      expected: '원(₩)',
+      actual: '$',
+      confidence: 0.85,
+      resolutionHint: '금액을 원화로 바꾸세요.',
+    });
+  }
+  if (wonInCard && domestic === false) {
+    issues.push({
+      category: 'fee-rule',
+      severity: 'warning',
+      title: '통화 확인 (해외 지역에 원화)',
+      description: `${e.locationCanonicalKr}(해외)에 원화 표기가 있습니다. 현지 통화가 맞는지 확인하세요.`,
+      actual: '원',
+      confidence: 0.6,
+    });
   }
   return issues;
 }

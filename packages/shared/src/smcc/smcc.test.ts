@@ -8,6 +8,7 @@ import { matchPlace, scorePlace } from './validators/place-match';
 import { normalizeRow } from './engine/normalize-event';
 import { buildCanonicalCard } from './engine/build-canonical-card';
 import { reviewEvent } from './index';
+import { analyzeStandaloneCard } from './engine/analyze-standalone';
 import { FIXTURES } from './fixtures';
 
 describe('date formatters', () => {
@@ -331,5 +332,58 @@ describe('실전 배치2: 통화·지역·요일버튼·금지표현 (놓치던 
     const review = reviewEvent(e, '에스프레소 런');
     expect(review.cardIssues.some((i) => i.title === '코스 시작/끝 카페명 오타 의심')).toBe(true);
     void headers;
+  });
+});
+
+describe('시트 없이 카드 단독 검수 (이미지/붙여넣기)', () => {
+  // 실제 Russell 카드(문제 있음)
+  const russell = [
+    'Mon Tue Wed Thu Fri Sat Sun',
+    'Russell @russelltiger',
+    '데일리 커피 챗',
+    'Korean',
+    '멜버른',
+    '1인 1잔',
+    'AM 7:30- AM 8:30',
+    'Date',
+    '7월 1일 수요일',
+    'Meet at',
+    'BENCH COFFEE CO.',
+    '580 St Kilda Rd, Melbourne VIC 3004',
+  ].join('\n');
+
+  it('Russell 카드는 절대 "이슈 없음"이면 안 된다', () => {
+    const { issues } = analyzeStandaloneCard(russell);
+    expect(issues.length).toBeGreaterThan(0);
+  });
+
+  it('KR 카드인데 "Korean" → 오류', () => {
+    const { issues } = analyzeStandaloneCard(russell);
+    expect(issues.some((i) => i.category === 'language-mismatch' && i.actual === 'Korean' && i.severity === 'error')).toBe(true);
+  });
+
+  it('KR 카드인데 "Date"/"Meet at" 영어 라벨 → 오류', () => {
+    const { issues } = analyzeStandaloneCard(russell);
+    expect(issues.some((i) => i.actual === 'Date' && i.severity === 'error')).toBe(true);
+    expect(issues.some((i) => i.actual === 'Meet at' && i.severity === 'error')).toBe(true);
+  });
+
+  it('프로그램/언어/지역 추론', () => {
+    const { event } = analyzeStandaloneCard(russell);
+    expect(event.programType).toBe('daily-coffee-chat');
+    expect(event.languageMode).toBe('KR');
+    expect(event.locationCanonicalKr).toBe('멜버른');
+  });
+
+  it('EN 카드 + 한글 프로그램명(데일리 커피 챗) → 오류', () => {
+    const card = ['English', 'Melbourne', 'Min. 1 Drink', '데일리 커피 챗', 'Jul 3rd, Fri'].join('\n');
+    const { issues } = analyzeStandaloneCard(card);
+    expect(issues.some((i) => i.category === 'language-mismatch' && i.severity === 'error')).toBe(true);
+  });
+
+  it('정상 카드(한국어/한글 라벨 없음)는 이슈 최소', () => {
+    const card = ['데일리 커피 챗', '한국어', '성수', '1인 1잔'].join('\n');
+    const { issues } = analyzeStandaloneCard(card);
+    expect(issues.filter((i) => i.severity === 'error').length).toBe(0);
   });
 });

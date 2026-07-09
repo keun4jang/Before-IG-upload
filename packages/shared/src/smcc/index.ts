@@ -10,6 +10,7 @@ export * from './engine/normalize-event';
 export * from './engine/build-canonical-card';
 export * from './engine/validate-event';
 export * from './engine/validate-card-text';
+export * from './engine/analyze-standalone';
 export * from './validators/place-match';
 export * from './fixtures';
 

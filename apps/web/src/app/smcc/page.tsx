@@ -13,6 +13,7 @@ import { CanonicalFields } from '@/components/smcc/canonical-fields';
 import { CardReviewer } from '@/components/smcc/card-reviewer';
 import { IssueList } from '@/components/smcc/issue-list';
 import { PlaceVerificationCard } from '@/components/smcc/place-verification-card';
+import { StandaloneReviewer } from '@/components/smcc/standalone-reviewer';
 
 function normalizedRows(e: smcc.NormalizedEvent): FieldRow[] {
   const loc = e.languageMode === 'EN' ? e.locationCanonicalEn : e.locationCanonicalKr;
@@ -51,6 +52,7 @@ export default function SmccPage() {
   const [memo, setMemo] = useState('');
   const [logs, setLogs] = useState(0);
   const [saved, setSaved] = useState(false);
+  const [mode, setMode] = useState<'sheet' | 'standalone'>('sheet');
 
   useEffect(() => setLogs(logCount()), []);
 
@@ -156,25 +158,51 @@ export default function SmccPage() {
       {/* 헤더 */}
       <div className="flex flex-wrap items-center gap-3">
         <h1 className="text-lg font-bold tracking-tight">SMCC 검수</h1>
-        <SourceSelector value={sheetType} onChange={setSheetType} />
-        <button
-          onClick={() => load(sheetType)}
-          className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"
-        >
-          <RefreshCw className={cn('h-3.5 w-3.5', loading && 'animate-spin')} /> 불러오기
-        </button>
-        <span
-          className={cn(
-            'rounded px-1.5 py-0.5 text-[11px]',
-            source === 'live'
-              ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300'
-              : 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300',
-          )}
-        >
-          {source === 'live' ? '실시간' : '예시'}
-        </span>
-        {message && <span className="text-[11px] text-slate-400">{message}</span>}
-        <span className="ml-auto text-xs text-slate-400">{events.length}건</span>
+        {/* 모드: 시트 기반 / 카드 단독 */}
+        <div className="flex gap-1">
+          <button
+            onClick={() => setMode('sheet')}
+            className={cn(
+              'rounded-md px-2.5 py-1 text-xs font-medium transition',
+              mode === 'sheet' ? 'bg-slate-800 text-white dark:bg-slate-200 dark:text-slate-900' : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300',
+            )}
+          >
+            시트
+          </button>
+          <button
+            onClick={() => setMode('standalone')}
+            className={cn(
+              'rounded-md px-2.5 py-1 text-xs font-medium transition',
+              mode === 'standalone' ? 'bg-slate-800 text-white dark:bg-slate-200 dark:text-slate-900' : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300',
+            )}
+          >
+            카드 단독
+          </button>
+        </div>
+        {mode === 'sheet' && <SourceSelector value={sheetType} onChange={setSheetType} />}
+        {mode === 'sheet' && (
+          <button
+            onClick={() => load(sheetType)}
+            className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"
+          >
+            <RefreshCw className={cn('h-3.5 w-3.5', loading && 'animate-spin')} /> 불러오기
+          </button>
+        )}
+        {mode === 'sheet' && (
+          <span
+            className={cn(
+              'rounded px-1.5 py-0.5 text-[11px]',
+              source === 'live'
+                ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300'
+                : 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300',
+            )}
+          >
+            {source === 'live' ? '실시간' : '예시'}
+          </span>
+        )}
+        {mode === 'sheet' && message && <span className="text-[11px] text-slate-400">{message}</span>}
+        {mode === 'sheet' && <span className="ml-auto text-xs text-slate-400">{events.length}건</span>}
+        {mode === 'standalone' && <span className="ml-auto" />}
         {/* 데이터 수집: 검수 기록 저장 / 내보내기 / 비우기 */}
         <div className="flex items-center gap-1">
           <button
@@ -210,7 +238,15 @@ export default function SmccPage() {
         </div>
       </div>
 
-      {/* 본문 */}
+      {/* 카드 단독 모드 */}
+      {mode === 'standalone' && (
+        <div className="mt-4">
+          <StandaloneReviewer onLogged={() => setLogs(logCount())} />
+        </div>
+      )}
+
+      {/* 본문 (시트 모드) */}
+      {mode === 'sheet' && (
       <div className="mt-4 grid gap-4 lg:grid-cols-[240px_1fr]">
         {/* 행 목록 */}
         <div>
@@ -321,6 +357,7 @@ export default function SmccPage() {
           </Card>
         )}
       </div>
+      )}
     </div>
   );
 }
