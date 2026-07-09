@@ -21,20 +21,7 @@ export function Navbar() {
               SMCC
             </Button>
           </Link>
-          <Link href="/dashboard">
-            <Button variant="ghost" size="sm">
-              대시보드
-            </Button>
-          </Link>
-          <Link href="/settings">
-            <Button variant="ghost" size="sm">
-              설정
-            </Button>
-          </Link>
           <ThemeToggle />
-          <Link href="/projects/new" className="hidden sm:block">
-            <Button size="sm">새 프로젝트</Button>
-          </Link>
         </nav>
       </div>
     </header>

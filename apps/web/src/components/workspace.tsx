@@ -2,20 +2,7 @@
 
 import { useCallbackRef } from '@/lib/use-callback-ref';
 import { useEffect, useMemo, useState } from 'react';
-import Link from 'next/link';
-import {
-  AlertTriangle,
-  ChevronDown,
-  ChevronUp,
-  Download,
-  FileJson,
-  FileText,
-  Play,
-  Printer,
-  RefreshCw,
-  Sparkles,
-  Trash2,
-} from 'lucide-react';
+import { AlertTriangle, ChevronDown, ChevronUp, Loader2, Trash2 } from 'lucide-react';
 import {
   ANALYSIS_STEPS,
   createId,
@@ -26,20 +13,16 @@ import {
   type AnalysisResult,
   type AnalysisRun,
   type Asset,
-  type Issue,
   type Slide,
 } from '@big/shared';
 import { Badge, Button, Card, CardContent, cn } from '@big/ui';
 import type { ProjectDetail } from '@/lib/store/types';
 import { api } from '@/lib/api-client';
 import { saveLocalProjectDetail } from '@/lib/local-projects';
-import { toJson, toMarkdown, toPrintableHtml } from '@/lib/services/report-service';
 import { ScoreRing } from './score-ring';
 import { Uploader, type PreparedImage } from './uploader';
 import { AnalysisProgressView } from './analysis-progress';
 import { ResultsPanel } from './results-panel';
-import { Checklist } from './checklist';
-import { SafetyNotice } from './safety-notice';
 
 interface SlideVM {
   slideNumber: number;
@@ -115,17 +98,16 @@ export function Workspace({ initial }: { initial: ProjectDetail }) {
   async function onRun() {
     setError(null);
     if (slides.length === 0 && !captionText.trim()) {
-      setError('분석할 슬라이드 또는 캡션이 없어요.');
+      setError('이미지 또는 캡션을 먼저 입력하세요.');
       return;
     }
     setAnalyzing(true);
     const input = buildInput();
     try {
-      // 분석은 백그라운드로 시작하고, 단계 애니메이션을 보여준 뒤 결과를 표시
       const analysisPromise = runAnalysis(input);
       for (const step of ANALYSIS_STEPS) {
         setProgress({ step: step.step, percent: step.percent, message: step.label });
-        await sleep(260);
+        await sleep(200);
       }
       const analysisResult: AnalysisResult = await analysisPromise;
       const finished = nowIso();
@@ -139,10 +121,9 @@ export function Workspace({ initial }: { initial: ProjectDetail }) {
         result: analysisResult,
         progress: { step: 'finalize', percent: 100, message: '완료' },
       });
-      // best-effort: 서버 저장(DB 모드에서만 의미 있음)
       api.runAnalysis(projectId).catch(() => {});
     } catch (err) {
-      setError(err instanceof Error ? err.message : '분석 중 문제가 발생했어요.');
+      setError(err instanceof Error ? err.message : '검수 중 문제가 발생했어요.');
     } finally {
       setAnalyzing(false);
       setProgress(undefined);
@@ -181,7 +162,6 @@ export function Workspace({ initial }: { initial: ProjectDetail }) {
   }
 
   function removeSlide(assetId: string) {
-    if (!confirm('이 슬라이드를 삭제할까요?')) return;
     setDetail((d) => {
       const assets = d.assets.filter((a) => a.id !== assetId).map((a, i) => ({ ...a, sortOrder: i }));
       const slides = d.slides
@@ -229,100 +209,38 @@ export function Workspace({ initial }: { initial: ProjectDetail }) {
     setRun((r) => {
       if (!r?.result) return r;
       const issues = r.result.issues.map((i) => (i.id === issueId ? { ...i, isResolved: resolved } : i));
-      const checklist = recomputeChecklist(r.result.checklist, issues);
-      return { ...r, result: { ...r.result, issues, checklist } };
+      return { ...r, result: { ...r.result, issues } };
     });
-  }
-
-  function download(name: string, content: string, type: string) {
-    const blob = new Blob([content], { type });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = name;
-    a.click();
-    URL.revokeObjectURL(url);
-  }
-
-  function onExport(format: 'md' | 'json' | 'print') {
-    if (!result) return;
-    const base = `검수리포트-${detail.project.name}`;
-    if (format === 'md') download(`${base}.md`, toMarkdown(detail, result), 'text/markdown;charset=utf-8');
-    else if (format === 'json')
-      download(`${base}.json`, toJson(detail, result), 'application/json;charset=utf-8');
-    else {
-      const w = window.open('', '_blank');
-      if (w) {
-        w.document.write(toPrintableHtml(detail, result));
-        w.document.close();
-      }
-    }
   }
 
   const current = slides.find((s) => s.slideNumber === selected) ?? slides[0];
 
   return (
     <div className="container-page py-6">
-      {/* 상단 요약 바 */}
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-        <div className="min-w-0">
-          <Link href="/dashboard" className="text-xs text-slate-400 hover:text-brand-600">
-            ← 대시보드
-          </Link>
-          <h1 className="mt-1 truncate text-xl font-bold tracking-tight sm:text-2xl">
-            {detail.project.name}
-          </h1>
-          {detail.project.description && (
-            <p className="mt-0.5 truncate text-sm text-slate-500">{detail.project.description}</p>
-          )}
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          {result && <ExportMenu onExport={onExport} />}
-          <Button onClick={onRun} disabled={analyzing || slides.length === 0}>
-            {result ? <RefreshCw className="h-4 w-4" /> : <Play className="h-4 w-4" />}
-            {result ? '다시 검수' : '검수 시작'}
-          </Button>
-        </div>
+      {/* 상단 바 */}
+      <div className="flex items-center justify-between gap-3">
+        {result ? (
+          <div className="flex items-center gap-3">
+            <ScoreRing score={result.score.overall} size={64} />
+            <div className="flex flex-wrap gap-1.5">
+              <Badge tone="danger">높음 {result.summary.bySeverity.high}</Badge>
+              <Badge tone="warning">중간 {result.summary.bySeverity.medium}</Badge>
+              <Badge tone="neutral">낮음 {result.summary.bySeverity.low}</Badge>
+            </div>
+          </div>
+        ) : (
+          <span />
+        )}
+        <Button onClick={onRun} disabled={analyzing}>
+          {analyzing && <Loader2 className="h-4 w-4 animate-spin" />}
+          검수 시작하기
+        </Button>
       </div>
 
       {error && (
         <div className="mt-4 flex items-center gap-2 rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700 dark:bg-rose-950/40 dark:text-rose-300">
           <AlertTriangle className="h-4 w-4" /> {error}
         </div>
-      )}
-
-      {/* 결과 요약 카드 */}
-      {result && (
-        <Card className="mt-4">
-          <CardContent className="grid gap-5 pt-5 sm:grid-cols-[auto_1fr_1.2fr]">
-            <div className="flex items-center justify-center">
-              <ScoreRing score={result.score.overall} />
-            </div>
-            <div className="space-y-2">
-              <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">검수 요약</p>
-              <div className="flex flex-wrap gap-1.5">
-                <Badge tone="danger">높음 {result.summary.bySeverity.high}</Badge>
-                <Badge tone="warning">중간 {result.summary.bySeverity.medium}</Badge>
-                <Badge tone="neutral">낮음 {result.summary.bySeverity.low}</Badge>
-              </div>
-              <p className="text-xs text-slate-500">
-                총 {result.summary.totalIssues}건 · 사실 검토 {result.summary.claimCount}문장 · 중복{' '}
-                {result.summary.duplicatePairCount}건
-              </p>
-              {run?.finishedAt && (
-                <p className="text-xs text-slate-400">
-                  마지막 분석 {new Date(run.finishedAt).toLocaleString('ko-KR')}
-                </p>
-              )}
-            </div>
-            <div className="border-t border-slate-100 pt-3 sm:border-l sm:border-t-0 sm:pl-5 sm:pt-0 dark:border-slate-800">
-              <p className="mb-2 text-sm font-semibold text-slate-700 dark:text-slate-200">
-                업로드 전 체크리스트
-              </p>
-              <Checklist items={result.checklist} />
-            </div>
-          </CardContent>
-        </Card>
       )}
 
       {/* 3열 워크스페이스 */}
@@ -351,63 +269,51 @@ export function Workspace({ initial }: { initial: ProjectDetail }) {
                     )}
                   </span>
                   <span className="min-w-0 flex-1">
-                    <span className="block text-xs font-medium">슬라이드 {s.slideNumber}</span>
-                    <span className="block truncate text-xs text-slate-400">
-                      {(s.editedText ?? s.rawText).slice(0, 20) || '텍스트 없음'}
+                    <span className="block truncate text-xs text-slate-500">
+                      {(s.editedText ?? s.rawText).slice(0, 24) || `슬라이드 ${s.slideNumber}`}
                     </span>
                   </span>
                   {sc && <span className="text-xs font-semibold text-slate-400">{sc.score}</span>}
                 </button>
               );
             })}
-            {slides.length === 0 && (
-              <p className="rounded-lg bg-slate-50 p-3 text-center text-xs text-slate-400 dark:bg-slate-900">
-                이미지를 올리면 슬라이드가 여기에 표시돼요.
-              </p>
-            )}
           </div>
         </div>
 
         {/* 중앙: 미리보기 + 텍스트 편집 + 캡션 */}
         <div className="space-y-4">
-          {current ? (
+          {current && (
             <Card>
               <CardContent className="pt-5">
-                <div className="flex items-center justify-between">
-                  <p className="text-sm font-semibold">슬라이드 {current.slideNumber}</p>
-                  <div className="flex items-center gap-1">
-                    <Button variant="ghost" size="icon" onClick={() => move(current.assetId, -1)}>
-                      <ChevronUp className="h-4 w-4" />
-                    </Button>
-                    <Button variant="ghost" size="icon" onClick={() => move(current.assetId, 1)}>
-                      <ChevronDown className="h-4 w-4" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => removeSlide(current.assetId)}
-                      className="text-slate-400 hover:text-rose-600"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  </div>
+                <div className="flex items-center justify-end gap-1">
+                  <Button variant="ghost" size="icon" onClick={() => move(current.assetId, -1)}>
+                    <ChevronUp className="h-4 w-4" />
+                  </Button>
+                  <Button variant="ghost" size="icon" onClick={() => move(current.assetId, 1)}>
+                    <ChevronDown className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => removeSlide(current.assetId)}
+                    className="text-slate-400 hover:text-rose-600"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
                 </div>
                 {current.previewUrl && (                  <img
                     src={current.previewUrl}
                     alt={`슬라이드 ${current.slideNumber}`}
-                    className="mt-3 w-full rounded-xl border border-slate-200 object-contain dark:border-slate-800"
+                    className="mt-1 w-full rounded-xl border border-slate-200 object-contain dark:border-slate-800"
                     style={{ maxHeight: 340 }}
                   />
                 )}
                 <div className="mt-4">
-                  <div className="mb-1 flex items-center justify-between">
-                    <label className="text-xs font-medium text-slate-500">
-                      OCR / 텍스트 (직접 수정 가능)
-                    </label>
-                    {current.ocrConfidence != null && current.ocrConfidence < 0.5 && (
-                      <Badge tone="warning">OCR 신뢰도 낮음</Badge>
-                    )}
-                  </div>
+                  {current.ocrConfidence != null && current.ocrConfidence < 0.5 && (
+                    <Badge tone="warning" className="mb-1">
+                      OCR 신뢰도 낮음
+                    </Badge>
+                  )}
                   <textarea
                     key={current.slideNumber}
                     defaultValue={current.editedText ?? current.rawText}
@@ -418,31 +324,23 @@ export function Workspace({ initial }: { initial: ProjectDetail }) {
                 </div>
               </CardContent>
             </Card>
-          ) : (
-            <Card>
-              <CardContent className="py-16 text-center text-sm text-slate-400">
-                왼쪽에서 이미지를 업로드해 시작하세요.
-              </CardContent>
-            </Card>
           )}
 
           {/* 캡션 */}
           <Card>
             <CardContent className="pt-5">
-              <label className="text-sm font-semibold">캡션</label>
-              <p className="mb-2 text-xs text-slate-400">본문에 넣을 캡션도 함께 검수합니다.</p>
               <textarea
                 value={captionText}
                 onChange={(e) => setCaptionText(e.target.value)}
                 onBlur={(e) => saveCaption(e.target.value)}
-                placeholder="캡션과 해시태그를 붙여넣으세요."
+                placeholder="캡션을 입력하거나 붙여넣으세요."
                 className="min-h-[110px] w-full resize-y rounded-lg border border-slate-200 bg-white p-3 text-sm outline-none focus:border-brand-400 focus:ring-2 focus:ring-brand-100 dark:border-slate-700 dark:bg-slate-900 dark:focus:ring-brand-950"
               />
             </CardContent>
           </Card>
         </div>
 
-        {/* 우: 결과/진행 패널 */}
+        {/* 우: 결과 */}
         <div>
           <Card className="lg:sticky lg:top-20">
             <CardContent className="pt-5">
@@ -453,17 +351,9 @@ export function Workspace({ initial }: { initial: ProjectDetail }) {
                   <ResultsPanel result={result} onToggle={toggleIssue} />
                 </div>
               ) : (
-                <div className="py-12 text-center">
-                  <Sparkles className="mx-auto h-9 w-9 text-brand-400" />
-                  <p className="mt-3 font-medium">검수를 시작해보세요</p>
-                  <p className="mt-1 text-xs text-slate-400">
-                    슬라이드 텍스트와 캡션을 확인한 뒤 “검수 시작”을 누르면 분석이 시작됩니다.
-                  </p>
-                  <Button className="mt-4" onClick={onRun} disabled={slides.length === 0}>
-                    <Play className="h-4 w-4" /> 검수 시작
-                  </Button>
-                  <SafetyNotice className="mt-5 text-left" />
-                </div>
+                <p className="py-16 text-center text-sm text-slate-400">
+                  이미지와 캡션을 넣고 검수를 시작하세요.
+                </p>
               )}
             </CardContent>
           </Card>
@@ -472,42 +362,3 @@ export function Workspace({ initial }: { initial: ProjectDetail }) {
     </div>
   );
 }
-
-function recomputeChecklist(checklist: AnalysisResult['checklist'], issues: Issue[]) {
-  const factIssues = issues.filter((i) => i.category === 'fact');
-  const updated = checklist.map((c) =>
-    c.key === 'fact' ? { ...c, passed: factIssues.every((i) => i.isResolved) } : { ...c },
-  );
-  const ready = updated.filter((c) => c.key !== 'ready').every((c) => c.passed);
-  return updated.map((c) => (c.key === 'ready' ? { ...c, passed: ready } : c));
-}
-
-function ExportMenu({ onExport }: { onExport: (format: 'md' | 'json' | 'print') => void }) {
-  const [open, setOpen] = useState(false);
-  return (
-    <div className="relative">
-      <Button variant="outline" onClick={() => setOpen((o) => !o)}>
-        <Download className="h-4 w-4" /> 내보내기
-      </Button>
-      {open && (
-        <>
-          <button className="fixed inset-0 z-10 cursor-default" onClick={() => setOpen(false)} aria-hidden />
-          <div className="absolute right-0 z-20 mt-1 w-44 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg dark:border-slate-700 dark:bg-slate-900">
-            <button className={menuItem} onClick={() => { onExport('md'); setOpen(false); }}>
-              <FileText className="h-4 w-4" /> Markdown
-            </button>
-            <button className={menuItem} onClick={() => { onExport('json'); setOpen(false); }}>
-              <FileJson className="h-4 w-4" /> JSON
-            </button>
-            <button className={menuItem} onClick={() => { onExport('print'); setOpen(false); }}>
-              <Printer className="h-4 w-4" /> 인쇄용 리포트
-            </button>
-          </div>
-        </>
-      )}
-    </div>
-  );
-}
-
-const menuItem =
-  'flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-800';

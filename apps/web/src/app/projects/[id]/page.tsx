@@ -61,12 +61,9 @@ export default function ProjectPage({ params }: { params: { id: string } }) {
     return (
       <div className="container-page flex min-h-[50vh] flex-col items-center justify-center text-center">
         <AlertTriangle className="h-10 w-10 text-amber-500" />
-        <h1 className="mt-4 text-xl font-bold">프로젝트를 찾을 수 없어요</h1>
-        <p className="mt-2 text-sm text-slate-500">
-          이 브라우저에 저장된 프로젝트가 아니거나 삭제되었을 수 있어요.
-        </p>
-        <Link href="/dashboard" className="mt-6">
-          <Button>대시보드로</Button>
+        <h1 className="mt-4 text-xl font-bold">찾을 수 없어요</h1>
+        <Link href="/" className="mt-6">
+          <Button>처음으로</Button>
         </Link>
       </div>
     );
