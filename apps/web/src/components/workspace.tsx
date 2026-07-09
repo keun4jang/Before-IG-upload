@@ -118,8 +118,13 @@ export function Workspace({ initial }: { initial: ProjectDetail }) {
     if (!sheetType || sheetTabs.length === 0) return [];
     const src = smcc.SHEET_SOURCES.find((s) => s.type === sheetType)!;
     const events = sheetTabs.flatMap((tab) => smcc.normalizeSheet(sheetType, src.url, tab.headers, tab.rows));
-    // 날짜순으로 정렬해서 신청 건 선택 목록에서 원하는 날짜를 바로 찾을 수 있게 한다.
-    return events.slice().sort((a, b) => (a.dateIso ?? '9999').localeCompare(b.dateIso ?? '9999'));
+    // 최신 날짜가 맨 위로 오도록 정렬. 날짜를 해석 못 한 행은 항상 맨 뒤로 보낸다.
+    return events.slice().sort((a, b) => {
+      if (!a.dateIso && !b.dateIso) return 0;
+      if (!a.dateIso) return 1;
+      if (!b.dateIso) return -1;
+      return b.dateIso.localeCompare(a.dateIso);
+    });
   }, [sheetType, sheetTabs]);
 
   const linkedEvent = linkedRowIndex != null ? sheetEvents[linkedRowIndex] : undefined;
