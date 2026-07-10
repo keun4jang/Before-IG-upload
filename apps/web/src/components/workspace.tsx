@@ -56,13 +56,14 @@ export function Workspace({ initial }: { initial: ProjectDetail }) {
   const [captionText, setCaptionText] = useState(
     initial.caption?.editedText ?? initial.caption?.originalText ?? '',
   );
-  // 구글시트 연동(선택) — 신청 건(행)을 골라두면 그 시트 값을 기준(정답)으로 카드 전체를 검수한다.
-  const [sheetType, setSheetType] = useState<smcc.SheetType | ''>('');
-  const [sheetTabs, setSheetTabs] = useState<SheetTab[]>([]);
-  const [sheetLoading, setSheetLoading] = useState(false);
-  const [sheetSource, setSheetSource] = useState<'live' | 'fixture' | null>(null);
-  const [sheetMessage, setSheetMessage] = useState<string | undefined>();
-  const [linkedRowIndex, setLinkedRowIndex] = useState<number | null>(null);
+  // 구글시트 연동(선택) — 이미지(슬라이드)마다 서로 다른 신청 건일 수 있어서, 연동은
+  // 슬라이드별로 따로 저장한다. 상단의 프로그램 선택은 "지금 어느 시트를 보고 있는지"이고,
+  // 실제 연동은 슬라이드 하나하나에 걸린다.
+  const [browsingSheetType, setBrowsingSheetType] = useState<smcc.SheetType | ''>('');
+  const [sheetCache, setSheetCache] = useState<
+    Partial<Record<smcc.SheetType, { tabs: SheetTab[]; source: 'live' | 'fixture' | null; message?: string; loading: boolean }>>
+  >({});
+  const [slideLinks, setSlideLinks] = useState<Record<number, { sheetType: smcc.SheetType; rowIndex: number }>>({});
 
   useEffect(() => {
     saveLocalProjectDetail({
@@ -92,42 +93,48 @@ export function Workspace({ initial }: { initial: ProjectDetail }) {
       });
   }, [detail]);
 
-  async function loadSheetType(type: smcc.SheetType) {
-    setSheetLoading(true);
-    setLinkedRowIndex(null);
+  async function ensureSheetLoaded(type: smcc.SheetType, force = false) {
+    if (!force && sheetCache[type]) return;
+    setSheetCache((prev) => ({ ...prev, [type]: { tabs: prev[type]?.tabs ?? [], source: prev[type]?.source ?? null, message: prev[type]?.message, loading: true } }));
     const src = smcc.SHEET_SOURCES.find((s) => s.type === type)!;
     const { tabs, source, message } = await loadSheet(type, src.url);
-    setSheetTabs(tabs);
-    setSheetSource(source);
-    setSheetMessage(message);
-    setSheetLoading(false);
+    setSheetCache((prev) => ({ ...prev, [type]: { tabs, source, message, loading: false } }));
   }
 
   function onSheetTypeChange(type: smcc.SheetType | '') {
-    setSheetType(type);
-    setLinkedRowIndex(null);
-    setSheetTabs([]);
-    setSheetSource(null);
-    setSheetMessage(undefined);
-    if (type) void loadSheetType(type);
+    setBrowsingSheetType(type);
+    if (type) void ensureSheetLoaded(type);
   }
 
   // 탭마다 열 구성이 달라도(원본 응답 탭 vs 캡션 작성용 탭 등) 각 탭을 자기 헤더 기준으로
   // 정규화한 뒤 합친다 — 하나의 표로 강제로 합치면 열 개수가 다른 탭의 데이터가 통째로 빠진다.
-  const sheetEvents: smcc.NormalizedEvent[] = useMemo(() => {
-    if (!sheetType || sheetTabs.length === 0) return [];
-    const src = smcc.SHEET_SOURCES.find((s) => s.type === sheetType)!;
-    const events = sheetTabs.flatMap((tab) => smcc.normalizeSheet(sheetType, src.url, tab.headers, tab.rows));
-    // 최신 날짜가 맨 위로 오도록 정렬. 날짜를 해석 못 한 행은 항상 맨 뒤로 보낸다.
-    return events.slice().sort((a, b) => {
-      if (!a.dateIso && !b.dateIso) return 0;
-      if (!a.dateIso) return 1;
-      if (!b.dateIso) return -1;
-      return b.dateIso.localeCompare(a.dateIso);
-    });
-  }, [sheetType, sheetTabs]);
+  const eventsByType = useMemo(() => {
+    const out: Partial<Record<smcc.SheetType, smcc.NormalizedEvent[]>> = {};
+    for (const type of Object.keys(sheetCache) as smcc.SheetType[]) {
+      const data = sheetCache[type];
+      if (!data || data.tabs.length === 0) continue;
+      const src = smcc.SHEET_SOURCES.find((s) => s.type === type)!;
+      const events = data.tabs.flatMap((tab) => smcc.normalizeSheet(type, src.url, tab.headers, tab.rows));
+      // 최신 날짜가 맨 위로 오도록 정렬. 날짜를 해석 못 한 행은 항상 맨 뒤로 보낸다.
+      out[type] = events.slice().sort((a, b) => {
+        if (!a.dateIso && !b.dateIso) return 0;
+        if (!a.dateIso) return 1;
+        if (!b.dateIso) return -1;
+        return b.dateIso.localeCompare(a.dateIso);
+      });
+    }
+    return out;
+  }, [sheetCache]);
 
-  const linkedEvent = linkedRowIndex != null ? sheetEvents[linkedRowIndex] : undefined;
+  const browsingEvents = browsingSheetType ? (eventsByType[browsingSheetType] ?? []) : [];
+  const browsingData = browsingSheetType ? sheetCache[browsingSheetType] : undefined;
+
+  function resolveLinkedEvent(
+    link: { sheetType: smcc.SheetType; rowIndex: number } | undefined,
+  ): smcc.NormalizedEvent | undefined {
+    if (!link) return undefined;
+    return eventsByType[link.sheetType]?.[link.rowIndex];
+  }
 
   const generalResult = run?.status === 'succeeded' ? run.result : undefined;
   const hasResult = generalResult != null;
@@ -156,26 +163,23 @@ export function Workspace({ initial }: { initial: ProjectDetail }) {
   }
 
   /**
-   * 규칙 검수: 구글시트 행을 연동해뒀으면 그 행 값(정답)을 기준으로 카드 전체 텍스트를 비교 검수하고,
-   * 연동하지 않았으면 카드 텍스트만 보고 추론하는 방식(standalone)으로 대체 검수한다.
+   * 규칙 검수: 슬라이드마다 구글시트 행이 연동돼 있으면 그 행 값(정답)을 기준으로 그 슬라이드
+   * 카드 텍스트를 비교 검수하고, 연동하지 않은 슬라이드는 카드 텍스트만 보고 추론하는 방식
+   * (standalone)으로 대체 검수한다. 이미지마다 다른 신청 건일 수 있어서 슬라이드 단위로 나눈다.
    */
   function runRuleCheck(texts: Map<number, string>): DisplayIssue[] {
-    if (linkedEvent) {
-      const combined = [
-        ...slides.map((s) => texts.get(s.slideNumber) ?? s.editedText ?? s.rawText),
-        captionText,
-      ]
-        .filter((t) => t.trim())
-        .join('\n');
-      const { issues } = smcc.reviewEvent(linkedEvent, combined);
-      return issues.map((i) => fromSmccIssue('구글시트 연동', i));
-    }
     const out: DisplayIssue[] = [];
     for (const s of slides) {
       const text = texts.get(s.slideNumber) ?? s.editedText ?? s.rawText;
       if (!text.trim()) continue;
-      const { issues } = smcc.analyzeStandaloneCard(text);
-      for (const i of issues) out.push(fromSmccIssue(`슬라이드 ${s.slideNumber}`, i));
+      const linkedEv = resolveLinkedEvent(slideLinks[s.slideNumber]);
+      if (linkedEv) {
+        const { issues } = smcc.reviewEvent(linkedEv, text);
+        for (const i of issues) out.push(fromSmccIssue(`슬라이드 ${s.slideNumber}`, i));
+      } else {
+        const { issues } = smcc.analyzeStandaloneCard(text);
+        for (const i of issues) out.push(fromSmccIssue(`슬라이드 ${s.slideNumber}`, i));
+      }
     }
     if (captionText.trim()) {
       const { issues } = smcc.analyzeStandaloneCard(captionText);
@@ -374,6 +378,22 @@ export function Workspace({ initial }: { initial: ProjectDetail }) {
     });
   }
 
+  /** 왼쪽 슬라이드 목록에 보여줄 제목. 연동된 신청 건이 있으면 그 행사 정보로, 없으면 카드
+   * 텍스트에서 추론한 프로그램명으로 표시한다 — OCR 원문 그대로 보여주면 알아보기 어렵다. */
+  function slideTitle(s: SlideVM): string {
+    const linked = resolveLinkedEvent(slideLinks[s.slideNumber]);
+    if (linked) {
+      return [smcc.programName(linked.programType, linked.languageMode), linked.dateRaw].filter(Boolean).join(' · ');
+    }
+    const text = s.editedText ?? s.rawText;
+    if (text.trim()) {
+      const { event } = smcc.analyzeStandaloneCard(text);
+      const label = smcc.programName(event.programType, event.languageMode);
+      if (label) return label;
+    }
+    return `슬라이드 ${s.slideNumber}`;
+  }
+
   const current = slides.find((s) => s.slideNumber === selected) ?? slides[0];
   const statusLabel = errorCount > 0 ? '수정 필요' : warnCount > 0 ? '확인 권장' : '이상 없음';
   const statusTone = errorCount > 0 ? 'danger' : warnCount > 0 ? 'warning' : 'success';
@@ -400,14 +420,18 @@ export function Workspace({ initial }: { initial: ProjectDetail }) {
           <span />
         )}
         <div className="ml-auto flex flex-wrap items-center gap-3">
-          {/* 1. 구글시트 연동(선택): 신청 건을 골라두면 그 값을 기준(정답)으로 카드 전체를 비교 검수한다 */}
+          {/* 1. 구글시트 연동(선택, 슬라이드별): 지금 고른 슬라이드에 신청 건을 연동해두면 그
+              값을 기준(정답)으로 그 슬라이드 카드를 비교 검수한다. 이미지마다 다른 신청 건일
+              수 있어서 연동은 슬라이드 하나하나에 따로 저장된다. */}
           <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-brand-200 bg-brand-50/50 px-4 py-3 text-sm">
             <span className="flex h-6 w-6 items-center justify-center rounded-full bg-brand-500 text-xs font-semibold text-white">
               1
             </span>
-            <span className="font-semibold text-brand-800">구글시트 연동</span>
+            <span className="font-semibold text-brand-800">
+              구글시트 연동{current && <span className="font-normal text-brand-500"> · 슬라이드 {current.slideNumber}</span>}
+            </span>
             <select
-              value={sheetType}
+              value={browsingSheetType}
               onChange={(e) => onSheetTypeChange(e.target.value as smcc.SheetType | '')}
               className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm outline-none"
             >
@@ -418,16 +442,29 @@ export function Workspace({ initial }: { initial: ProjectDetail }) {
                 </option>
               ))}
             </select>
-            {sheetType && (
+            {browsingSheetType && (
               <>
                 <select
-                  value={linkedRowIndex ?? ''}
-                  onChange={(e) => setLinkedRowIndex(e.target.value === '' ? null : Number(e.target.value))}
-                  disabled={sheetLoading || sheetEvents.length === 0}
+                  value={
+                    current && slideLinks[current.slideNumber]?.sheetType === browsingSheetType
+                      ? slideLinks[current.slideNumber]!.rowIndex
+                      : ''
+                  }
+                  onChange={(e) => {
+                    if (!current) return;
+                    const idx = e.target.value === '' ? null : Number(e.target.value);
+                    setSlideLinks((prev) => {
+                      const next = { ...prev };
+                      if (idx == null) delete next[current.slideNumber];
+                      else next[current.slideNumber] = { sheetType: browsingSheetType, rowIndex: idx };
+                      return next;
+                    });
+                  }}
+                  disabled={!current || browsingData?.loading || browsingEvents.length === 0}
                   className="max-w-[240px] rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm outline-none"
                 >
                   <option value="">신청 건 선택</option>
-                  {sheetEvents.map((ev, i) => (
+                  {browsingEvents.map((ev, i) => (
                     <option key={i} value={i}>
                       {[ev.dateRaw, ev.cafeName, ev.hostInstagram].filter(Boolean).join(' · ') || `행 ${i + 1}`}
                     </option>
@@ -435,30 +472,34 @@ export function Workspace({ initial }: { initial: ProjectDetail }) {
                 </select>
                 <button
                   type="button"
-                  onClick={() => void loadSheetType(sheetType)}
+                  onClick={() => void ensureSheetLoaded(browsingSheetType, true)}
                   className="inline-flex items-center gap-1 rounded-lg px-2 py-1.5 text-slate-400 hover:bg-white"
                   title="다시 불러오기"
                 >
-                  <RefreshCw className={cn('h-4 w-4', sheetLoading && 'animate-spin')} />
+                  <RefreshCw className={cn('h-4 w-4', browsingData?.loading && 'animate-spin')} />
                 </button>
-                {sheetSource && (
+                {browsingData?.source && (
                   <span
                     className={cn(
                       'rounded px-1.5 py-0.5 text-[11px]',
-                      sheetSource === 'live' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700',
+                      browsingData.source === 'live' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700',
                     )}
                   >
-                    {sheetSource === 'live' ? '실시간' : '예시'}
+                    {browsingData.source === 'live' ? '실시간' : '예시'}
                   </span>
                 )}
-                {sheetMessage && <span className="text-xs text-slate-400">{sheetMessage}</span>}
+                {browsingData?.message && <span className="text-xs text-slate-400">{browsingData.message}</span>}
               </>
             )}
-            {linkedEvent && (
-              <span className="font-medium text-brand-700">
-                연동됨: {linkedEvent.cafeName} · {linkedEvent.languageLabelExpected}
-              </span>
-            )}
+            {current &&
+              (() => {
+                const ev = resolveLinkedEvent(slideLinks[current.slideNumber]);
+                return ev ? (
+                  <span className="font-medium text-brand-700">
+                    연동됨: {ev.cafeName} · {ev.languageLabelExpected}
+                  </span>
+                ) : null;
+              })()}
           </div>
 
           {/* 2. 검수 시작하기 */}
@@ -499,9 +540,7 @@ export function Workspace({ initial }: { initial: ProjectDetail }) {
                   )}
                 </span>
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate text-xs text-slate-500">
-                    {(s.editedText ?? s.rawText).slice(0, 24) || `슬라이드 ${s.slideNumber}`}
-                  </span>
+                  <span className="block truncate text-xs text-slate-500">{slideTitle(s)}</span>
                 </span>
               </button>
             ))}
