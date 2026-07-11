@@ -370,13 +370,14 @@ export function Workspace({ initial }: { initial: ProjectDetail }) {
   }
 
   /**
-   * 카드 상단 장식용 요일 버튼 줄("Mon Tue Wed...")이나 점선 구분선처럼, OCR이 UI 장식
-   * 요소를 문자로 잘못 읽어낸 줄을 걸러낸다. 이런 줄이 검수 결과에 섞이면 "표현/톤" 같은
-   * 엉뚱한 오탐이 나거나, 모든 카드에 똑같이 나타나서 슬라이드끼리 "중복 문장"으로 잘못
-   * 잡히기도 한다.
+   * 카드 상단 장식용 요일 버튼 줄("Mon Tue Wed...")이나 점선 구분선, 하단 SMCC 로고/워터마크처럼,
+   * OCR이 UI 장식 요소를 문자로 잘못 읽어낸 줄을 걸러낸다. 이런 줄이 검수 결과에 섞이면
+   * "표현/톤" 같은 엉뚱한 오탐이 나거나, 모든 카드에 똑같이 나타나서(로고는 카드마다 항상
+   * 같은 문구니까) 슬라이드끼리 "중복 문장"으로 잘못 잡히기도 한다.
    */
   function cleanOcrText(text: string): string {
     const weekdayRe = /\b(mon|tue|wed|thu|fri|sat|sun)\b/gi;
+    const logoRe = /seoul\s*morning\s*coffee\s*club/i;
     return text
       .split('\n')
       .filter((line) => {
@@ -384,6 +385,8 @@ export function Workspace({ initial }: { initial: ProjectDetail }) {
         if (!trimmed) return false;
         // 요일 버튼 줄: 요일 단어가 2개 이상 나오면 실제 날짜가 아니라 장식용 버튼 목록이다.
         if ((trimmed.match(weekdayRe) ?? []).length >= 2) return false;
+        // 카드 하단에 항상 똑같이 나오는 SMCC 로고/워터마크 줄은 실제 콘텐츠가 아니다.
+        if (logoRe.test(trimmed)) return false;
         // 그 외 장식(점선/괄호/기호) 줄: 영숫자 비중이 너무 낮으면 버린다. 라벨처럼 짧은 줄은
         // (예: "Date") 건드리지 않기 위해 어느 정도 길이가 있는 줄만 검사한다.
         if (trimmed.length >= 6) {
