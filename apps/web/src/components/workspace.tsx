@@ -192,7 +192,9 @@ export function Workspace({ initial }: { initial: ProjectDetail }) {
   async function extractTextForSlide(imageDataUrl: string): Promise<{ text: string; confidence: number } | null> {
     const visionText = await tryVisionExtract(imageDataUrl);
     if (visionText) return { text: visionText, confidence: 0.95 };
-    return tryTesseractExtract(imageDataUrl);
+    const result = await tryTesseractExtract(imageDataUrl);
+    if (!result) return null;
+    return { ...result, text: cleanOcrText(result.text) };
   }
 
   async function onRun() {
@@ -334,27 +336,64 @@ export function Workspace({ initial }: { initial: ProjectDetail }) {
     }
   }
 
-  /** 로컬 OCR(자체 호스팅, 키 불필요). 글자 단위 인식이라 장식 요소도 함께 뽑힐 수 있음. */
+  /**
+   * 로컬 OCR(자체 호스팅, 키 불필요). 글자 단위 인식이라 장식 요소도 함께 뽑힐 수 있음.
+   * SMCC 카드처럼 아이콘·라벨·값이 흩어져 있는 레이아웃은 기본(완전 자동) 레이아웃 분석보다
+   * "성긴 텍스트"(PSM 11) 모드가 실측상 더 정확해서 그 모드로 고정한다.
+   */
   async function tryTesseractExtract(imageDataUrl: string): Promise<{ text: string; confidence: number } | null> {
     try {
-      const Tesseract = (await import('tesseract.js')).default;
+      const { createWorker, PSM } = await import('tesseract.js');
       const timeout = new Promise<never>((_, reject) =>
         setTimeout(() => reject(new Error('timeout')), 45000),
       );
-      const { data } = await Promise.race([
-        Tesseract.recognize(imageDataUrl, 'kor+eng', {
+      const recognizePromise = (async () => {
+        const worker = await createWorker('kor+eng', 1, {
           workerPath: '/tesseract/worker.min.js',
           corePath: '/tesseract/tesseract-core-lstm.wasm.js',
           langPath: '/tessdata',
-        }),
-        timeout,
-      ]);
+        });
+        try {
+          await worker.setParameters({ tessedit_pageseg_mode: PSM.SPARSE_TEXT, preserve_interword_spaces: '1' });
+          return await worker.recognize(imageDataUrl);
+        } finally {
+          await worker.terminate();
+        }
+      })();
+      const { data } = await Promise.race([recognizePromise, timeout]);
       const text = (data.text ?? '').trim();
       if (!text) return null;
       return { text, confidence: (data.confidence ?? 50) / 100 };
     } catch {
       return null;
     }
+  }
+
+  /**
+   * 카드 상단 장식용 요일 버튼 줄("Mon Tue Wed...")이나 점선 구분선처럼, OCR이 UI 장식
+   * 요소를 문자로 잘못 읽어낸 줄을 걸러낸다. 이런 줄이 검수 결과에 섞이면 "표현/톤" 같은
+   * 엉뚱한 오탐이 나거나, 모든 카드에 똑같이 나타나서 슬라이드끼리 "중복 문장"으로 잘못
+   * 잡히기도 한다.
+   */
+  function cleanOcrText(text: string): string {
+    const weekdayRe = /\b(mon|tue|wed|thu|fri|sat|sun)\b/gi;
+    return text
+      .split('\n')
+      .filter((line) => {
+        const trimmed = line.trim();
+        if (!trimmed) return false;
+        // 요일 버튼 줄: 요일 단어가 2개 이상 나오면 실제 날짜가 아니라 장식용 버튼 목록이다.
+        if ((trimmed.match(weekdayRe) ?? []).length >= 2) return false;
+        // 그 외 장식(점선/괄호/기호) 줄: 영숫자 비중이 너무 낮으면 버린다. 라벨처럼 짧은 줄은
+        // (예: "Date") 건드리지 않기 위해 어느 정도 길이가 있는 줄만 검사한다.
+        if (trimmed.length >= 6) {
+          const alnum = (trimmed.match(/[\p{L}\p{N}]/gu) ?? []).length;
+          if (alnum / trimmed.length < 0.35) return false;
+        }
+        return true;
+      })
+      .join('\n')
+      .trim();
   }
 
   function applySlideText(slideNumber: number, text: string, confidence: number) {
