@@ -433,4 +433,19 @@ describe('시트 없이 카드 단독 검수 (이미지/붙여넣기)', () => {
       issues.some((i) => i.category === 'language-mismatch' && i.actual === 'Korean' && i.expected === '한국어'),
     ).toBe(true);
   });
+
+  it('요일 버튼 줄에 요일이 중복/누락되면 오탐(요일 버튼 오타)으로 잡는다', () => {
+    // 실제 사례: "Mon Tue Tue Thu Fri Sat Sun" — Wed 가 빠지고 Tue 가 중복.
+    const card = ['Mon Tue Tue Thu Fri Sat Sun', '데일리 커피 챗', '7월 8일 화요일'].join('\n');
+    const { issues } = analyzeStandaloneCard(card);
+    const issue = issues.find((i) => i.title === '요일 버튼 오타');
+    expect(issue).toBeTruthy();
+    expect(issue?.actual).toContain('Tue Tue');
+  });
+
+  it('요일 버튼 줄이 Mon~Sun 정상이면 요일 버튼 오타로 안 잡는다', () => {
+    const card = ['Mon Tue Wed Thu Fri Sat Sun', '데일리 커피 챗', '7월 8일 수요일'].join('\n');
+    const { issues } = analyzeStandaloneCard(card);
+    expect(issues.some((i) => i.title === '요일 버튼 오타')).toBe(false);
+  });
 });

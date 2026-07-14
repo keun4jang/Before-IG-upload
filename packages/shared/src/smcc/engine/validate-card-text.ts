@@ -6,6 +6,7 @@ import { compareCardTime } from '../validators/time';
 import { compareCardDate } from '../validators/date';
 import { compareFields } from '../validators/card-compare';
 import {
+  scanWeekdayButtonRowTypo,
   validateAddressRegion,
   validateRouteEndpoints,
   validateWeekdayButton,
@@ -71,6 +72,7 @@ export function validateCardText(
     ...validateAddressRegion(e, cardText),
     ...validateRouteEndpoints(e),
     ...validateWeekdayButton(e, options.weekdayButton),
+    ...scanWeekdayButtonRowTypo(cardText),
   ];
   return withIds(raw, 'card');
 }

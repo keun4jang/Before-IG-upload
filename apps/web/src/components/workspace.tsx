@@ -154,7 +154,7 @@ export function Workspace({ initial }: { initial: ProjectDetail }) {
     return {
       slides: slides.map((s) => ({
         slideNumber: s.slideNumber,
-        text: texts.get(s.slideNumber) ?? s.editedText ?? s.rawText,
+        text: stripWeekdayRow(texts.get(s.slideNumber) ?? s.editedText ?? s.rawText),
         ocrConfidence: s.ocrConfidence ?? undefined,
       })),
       captionText: captionText.trim() ? captionText : undefined,
@@ -369,22 +369,23 @@ export function Workspace({ initial }: { initial: ProjectDetail }) {
     }
   }
 
+  const WEEKDAY_ROW_RE = /\b(mon|tue|wed|thu|fri|sat|sun)\b/gi;
+
   /**
-   * 카드 상단 장식용 요일 버튼 줄("Mon Tue Wed...")이나 점선 구분선, 하단 SMCC 로고/워터마크처럼,
-   * OCR이 UI 장식 요소를 문자로 잘못 읽어낸 줄을 걸러낸다. 이런 줄이 검수 결과에 섞이면
-   * "표현/톤" 같은 엉뚱한 오탐이 나거나, 모든 카드에 똑같이 나타나서(로고는 카드마다 항상
-   * 같은 문구니까) 슬라이드끼리 "중복 문장"으로 잘못 잡히기도 한다.
+   * 점선 구분선, 하단 SMCC 로고/워터마크처럼 OCR이 UI 장식 요소를 문자로 잘못 읽어낸 줄을
+   * 걸러낸다. 이런 줄이 검수 결과에 섞이면 "표현/톤" 같은 엉뚱한 오탐이 나거나, 모든 카드에
+   * 똑같이 나타나서(로고는 카드마다 항상 같은 문구니까) 슬라이드끼리 "중복 문장"으로 잘못
+   * 잡히기도 한다. 상단 요일 버튼 줄("Mon Tue Wed...")은 여기서는 남겨둔다 — SMCC 규칙
+   * 검수가 그 줄 자체의 오타(요일 중복/누락)를 검사하는 데 필요하기 때문(runRuleCheck 참고).
+   * 일반 검수(중복 문장 등)에는 stripWeekdayRow 로 별도로 제거한 텍스트를 넘긴다.
    */
   function cleanOcrText(text: string): string {
-    const weekdayRe = /\b(mon|tue|wed|thu|fri|sat|sun)\b/gi;
     const logoRe = /seoul\s*morning\s*coffee\s*club/i;
     return text
       .split('\n')
       .filter((line) => {
         const trimmed = line.trim();
         if (!trimmed) return false;
-        // 요일 버튼 줄: 요일 단어가 2개 이상 나오면 실제 날짜가 아니라 장식용 버튼 목록이다.
-        if ((trimmed.match(weekdayRe) ?? []).length >= 2) return false;
         // 카드 하단에 항상 똑같이 나오는 SMCC 로고/워터마크 줄은 실제 콘텐츠가 아니다.
         if (logoRe.test(trimmed)) return false;
         // 그 외 장식(점선/괄호/기호) 줄: 영숫자 비중이 너무 낮으면 버린다. 라벨처럼 짧은 줄은
@@ -393,8 +394,27 @@ export function Workspace({ initial }: { initial: ProjectDetail }) {
           const alnum = (trimmed.match(/[\p{L}\p{N}]/gu) ?? []).length;
           if (alnum / trimmed.length < 0.35) return false;
         }
+        // SMCC 로고 그림(워드마크)처럼 글자가 아닌 그래픽을 억지로 문자로 읽어낸 줄: 알파벳
+        // 조각이 짧게 잔뜩 쪼개져 나온다("eL eSGEAEA C SE S..."). 평균 토큰 길이가 아주
+        // 짧으면 실제 단어가 아니라 이런 노이즈로 보고 버린다.
+        const tokens = trimmed.split(/\s+/).filter(Boolean);
+        if (tokens.length >= 6) {
+          const avgLen = tokens.reduce((sum, t) => sum + t.length, 0) / tokens.length;
+          if (avgLen < 2.5) return false;
+        }
         return true;
       })
+      .join('\n')
+      .trim();
+  }
+
+  /** 상단 장식용 요일 버튼 줄을 제거한다. 요일 단어가 2개 이상 나오면 실제 날짜가 아니라
+   * 장식용 버튼 목록으로 본다. 일반 검수(오타/중복)에서 이 줄이 카드마다 똑같이 나타나
+   * "중복 문장"으로 오탐 나는 걸 막기 위해 그쪽 입력에만 적용한다. */
+  function stripWeekdayRow(text: string): string {
+    return text
+      .split('\n')
+      .filter((line) => (line.match(WEEKDAY_ROW_RE) ?? []).length < 2)
       .join('\n')
       .trim();
   }

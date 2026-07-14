@@ -71,6 +71,50 @@ export function validateWeekdayButton(
   return issues;
 }
 
+const WEEKDAY_BUTTON_ORDER = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+const WEEKDAY_BUTTON_LABEL: Record<string, string> = {
+  mon: 'Mon',
+  tue: 'Tue',
+  wed: 'Wed',
+  thu: 'Thu',
+  fri: 'Fri',
+  sat: 'Sat',
+  sun: 'Sun',
+};
+
+/**
+ * [상단 요일 버튼 자체의 오타] 카드 상단엔 항상 Mon~Sun 7개 버튼이 하나씩 있어야 하는데,
+ * 디자이너가 복사/붙여넣기하다가 한 요일을 두 번 넣고 다른 요일을 빠뜨리는 실수가 있다.
+ * 예: "Mon Tue Tue Thu Fri Sat Sun" (Tue 중복, Wed 누락).
+ * OCR로 정확히 7개 요일 단어가 인식된 줄에서만 검사한다(그보다 적으면 인식 실패로 보고 건너뜀).
+ */
+export function scanWeekdayButtonRowTypo(cardText: string): RawSmccIssue[] {
+  const weekdayRe = /\b(mon|tue|wed|thu|fri|sat|sun)\b/gi;
+  for (const line of cardText.split('\n')) {
+    const matches = [...line.matchAll(weekdayRe)].map((m) => m[1]!.toLowerCase());
+    if (matches.length !== 7) continue;
+    const counts = new Map<string, number>();
+    for (const d of matches) counts.set(d, (counts.get(d) ?? 0) + 1);
+    const duplicated = [...counts.entries()].filter(([, c]) => c > 1).map(([d]) => d);
+    const missing = WEEKDAY_BUTTON_ORDER.filter((d) => !counts.has(d));
+    if (duplicated.length === 0 && missing.length === 0) continue;
+    const label = (d: string) => WEEKDAY_BUTTON_LABEL[d] ?? d;
+    return [
+      {
+        category: 'date-rule',
+        severity: 'error',
+        title: '요일 버튼 오타',
+        description: `요일 버튼에 "${duplicated.map(label).join(', ')}" 이(가) 중복되고 "${missing.map(label).join(', ')}" 이(가) 빠져 있습니다.`,
+        expected: WEEKDAY_BUTTON_ORDER.map(label).join(' '),
+        actual: matches.map(label).join(' '),
+        confidence: 0.85,
+        resolutionHint: '요일 버튼이 Mon~Sun 7개가 하나씩만 있는지 확인하세요.',
+      },
+    ];
+  }
+  return [];
+}
+
 function levenshtein(a: string, b: string): number {
   const m = a.length;
   const n = b.length;

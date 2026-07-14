@@ -16,6 +16,7 @@ import { checkCurrencyRegion, scanBadCurrency, scanForbiddenCondition } from '..
 import { validateCardLabels, validateCardLanguage, validateLanguageLabel } from '../validators/language';
 import { validateEventDate } from '../validators/date';
 import {
+  scanWeekdayButtonRowTypo,
   validateAddressRegion,
   validateRouteEndpoints,
   validateWeekdayButton,
@@ -177,6 +178,7 @@ export function analyzeStandaloneCard(
     ...validateAddressRegion(event, cardText),
     ...validateRouteEndpoints(event),
     ...validateWeekdayButton(event, options.weekdayButton),
+    ...scanWeekdayButtonRowTypo(cardText),
   ];
   return { event, issues: withIds(raw, 'card') };
 }
