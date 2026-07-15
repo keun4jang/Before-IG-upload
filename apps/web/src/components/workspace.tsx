@@ -169,20 +169,20 @@ export function Workspace({ initial }: { initial: ProjectDetail }) {
    */
   function runRuleCheck(
     texts: Map<number, string>,
-    buttonTokens: Map<number, string[]>,
+    weekdayButtons: Map<number, smcc.WeekdayButtonScan>,
   ): DisplayIssue[] {
     const out: DisplayIssue[] = [];
     for (const s of slides) {
       const text = texts.get(s.slideNumber) ?? s.editedText ?? s.rawText;
-      const tokens = buttonTokens.get(s.slideNumber);
-      // 카드 텍스트가 비어도 요일 버튼 오타는 검사할 수 있으므로 tokens 가 있으면 진행한다.
-      if (!text.trim() && !tokens) continue;
+      const buttons = weekdayButtons.get(s.slideNumber);
+      // 카드 텍스트가 비어도 요일 버튼 오타는 검사할 수 있으므로 buttons 가 있으면 진행한다.
+      if (!text.trim() && !buttons) continue;
       const linkedEv = resolveLinkedEvent(slideLinks[s.slideNumber]);
       if (linkedEv) {
-        const { issues } = smcc.reviewEvent(linkedEv, text, { weekdayButtonTokens: tokens });
+        const { issues } = smcc.reviewEvent(linkedEv, text, { weekdayButtons: buttons });
         for (const i of issues) out.push(fromSmccIssue(`슬라이드 ${s.slideNumber}`, i));
       } else {
-        const { issues } = smcc.analyzeStandaloneCard(text, { weekdayButtonTokens: tokens });
+        const { issues } = smcc.analyzeStandaloneCard(text, { weekdayButtons: buttons });
         for (const i of issues) out.push(fromSmccIssue(`슬라이드 ${s.slideNumber}`, i));
       }
     }
@@ -229,7 +229,7 @@ export function Workspace({ initial }: { initial: ProjectDetail }) {
       }
 
       // 2) 상단 요일 버튼은 카드 전체 OCR로는 잘 안 읽혀서, 버튼 영역만 따로 잘라 OCR한다.
-      const buttonTokens = new Map<number, string[]>();
+      const weekdayButtons = new Map<number, smcc.WeekdayButtonScan>();
       const withImage = slides.filter((s) => s.previewUrl);
       for (let i = 0; i < withImage.length; i++) {
         const s = withImage[i]!;
@@ -238,8 +238,10 @@ export function Workspace({ initial }: { initial: ProjectDetail }) {
           percent: 20 + Math.round(((i + 1) / withImage.length) * 5),
           message: `요일 버튼 확인 중 (${i + 1}/${withImage.length})`,
         });
-        const tokens = await extractWeekdayButtons(s.previewUrl!);
-        if (tokens.length > 0) buttonTokens.set(s.slideNumber, tokens);
+        const scan = await extractWeekdayButtons(s.previewUrl!);
+        if ((scan.cells && scan.cells.length > 0) || (scan.tokens && scan.tokens.length > 0)) {
+          weekdayButtons.set(s.slideNumber, scan);
+        }
       }
 
       const input = buildInput(finalTexts);
@@ -260,7 +262,7 @@ export function Workspace({ initial }: { initial: ProjectDetail }) {
         result: analysisResult,
         progress: { step: 'finalize', percent: 100, message: '완료' },
       });
-      setRuleIssues(runRuleCheck(finalTexts, buttonTokens));
+      setRuleIssues(runRuleCheck(finalTexts, weekdayButtons));
       api.runAnalysis(projectId).catch(() => {});
     } catch (err) {
       setError(err instanceof Error ? err.message : '검수 중 문제가 발생했어요.');
@@ -391,9 +393,13 @@ export function Workspace({ initial }: { initial: ProjectDetail }) {
   /**
    * 상단 요일 버튼(Mon~Sun)만 따로 인식한다. 이 버튼들은 연한 색·강조 스타일이라 카드 전체
    * OCR로는 뭉개지는데, 버튼 줄 영역만 잘라 요일 단어만 허용(whitelist)해 OCR하면 훨씬
-   * 잘 읽힌다(실측 확인). 결과는 소문자 요일 토큰 배열(예: ['mon','tue','tue',...]).
+   * 잘 읽힌다(실측 확인). 두 가지를 함께 뽑는다:
+   *  - cells: 버튼 줄을 7칸으로 나눠 한 칸씩 인식(위치가 어긋난 버튼을 정확히 집어냄).
+   *  - tokens: 버튼 줄 전체를 한 번에 인식(같은 요일 중복 감지).
    */
-  async function extractWeekdayButtons(imageDataUrl: string): Promise<string[]> {
+  async function extractWeekdayButtons(
+    imageDataUrl: string,
+  ): Promise<smcc.WeekdayButtonScan> {
     try {
       const img = await new Promise<HTMLImageElement>((resolve, reject) => {
         const el = new Image();
@@ -401,43 +407,75 @@ export function Workspace({ initial }: { initial: ProjectDetail }) {
         el.onerror = reject;
         el.src = imageDataUrl;
       });
-      // 카드 상단 버튼 줄 영역(세로 10~18%)만 잘라낸다.
+      // 카드 상단 버튼 줄 영역(세로 10~18%).
       const y0 = Math.round(img.naturalHeight * 0.1);
-      const y1 = Math.round(img.naturalHeight * 0.18);
-      const h = Math.max(1, y1 - y0);
-      const canvas = document.createElement('canvas');
-      canvas.width = img.naturalWidth;
-      canvas.height = h;
-      const ctx = canvas.getContext('2d');
-      if (!ctx) return [];
-      ctx.drawImage(img, 0, y0, img.naturalWidth, h, 0, 0, img.naturalWidth, h);
-      const stripUrl = canvas.toDataURL('image/png');
+      const yh = Math.max(1, Math.round(img.naturalHeight * 0.18) - y0);
+      const W = img.naturalWidth;
+
+      // 버튼 줄 전체를 한 장으로: 색 필터 없이(실측상 원본이 가장 잘 읽힘).
+      const stripCanvas = document.createElement('canvas');
+      stripCanvas.width = W;
+      stripCanvas.height = yh;
+      const sctx = stripCanvas.getContext('2d');
+      if (!sctx) return {};
+      sctx.drawImage(img, 0, y0, W, yh, 0, 0, W, yh);
+      const stripUrl = stripCanvas.toDataURL('image/png');
+
+      // 7칸: 버튼은 좌우 여백을 빼고 대략 가로 11~89% 구간에 균등 배치된다.
+      // 색 필터 없이 원본 그대로 잘라야 인식이 가장 잘 된다(실측 확인).
+      const x0 = W * 0.11;
+      const cw = (W * 0.89 - x0) / 7;
+      const cellUrls: string[] = [];
+      for (let i = 0; i < 7; i++) {
+        const cx = Math.round(x0 + i * cw);
+        const cx2 = Math.round(x0 + (i + 1) * cw);
+        const cwi = Math.max(1, cx2 - cx);
+        const cc = document.createElement('canvas');
+        cc.width = cwi;
+        cc.height = yh;
+        const cctx = cc.getContext('2d');
+        if (!cctx) return {};
+        cctx.drawImage(img, cx, y0, cwi, yh, 0, 0, cwi, yh);
+        cellUrls.push(cc.toDataURL('image/png'));
+      }
 
       const { createWorker, PSM } = await import('tesseract.js');
       const timeout = new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error('timeout')), 30000),
+        setTimeout(() => reject(new Error('timeout')), 40000),
       );
-      const recognizePromise = (async () => {
+      const recognizePromise = (async (): Promise<smcc.WeekdayButtonScan> => {
         const worker = await createWorker('eng', 1, {
           workerPath: '/tesseract/worker.min.js',
           corePath: '/tesseract/tesseract-core-lstm.wasm.js',
           langPath: '/tessdata',
         });
         try {
+          // 1) 전체 토큰
           await worker.setParameters({
             tessedit_pageseg_mode: PSM.SPARSE_TEXT,
             tessedit_char_whitelist: 'MonTueWedThuFriSatSun ',
             preserve_interword_spaces: '1',
           });
-          return await worker.recognize(stripUrl);
+          const stripRes = await worker.recognize(stripUrl);
+          const tokens = (stripRes.data.text.match(/\b(mon|tue|wed|thu|fri|sat|sun)\b/gi) ?? []).map(
+            (t) => t.toLowerCase(),
+          );
+          // 2) 칸별
+          await worker.setParameters({ tessedit_pageseg_mode: PSM.SINGLE_LINE });
+          const cells: Array<string | null> = [];
+          for (const url of cellUrls) {
+            const res = await worker.recognize(url);
+            const m = res.data.text.match(/mon|tue|wed|thu|fri|sat|sun/i);
+            cells.push(m ? m[0].toLowerCase() : null);
+          }
+          return { cells, tokens };
         } finally {
           await worker.terminate();
         }
       })();
-      const { data } = await Promise.race([recognizePromise, timeout]);
-      return (data.text.match(/\b(mon|tue|wed|thu|fri|sat|sun)\b/gi) ?? []).map((t) => t.toLowerCase());
+      return await Promise.race([recognizePromise, timeout]);
     } catch {
-      return [];
+      return {};
     }
   }
 

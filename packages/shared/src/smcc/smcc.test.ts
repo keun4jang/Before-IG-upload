@@ -423,33 +423,32 @@ describe('시트 없이 카드 단독 검수 (이미지/붙여넣기)', () => {
     ).toBe(true);
   });
 
-  it('상단 버튼 토큰에 요일이 중복되면 요일 버튼 오타로 잡는다(card1: Tue 중복)', () => {
-    const card = ['데일리 커피 챗', '7월 21일 화요일'].join('\n');
-    const tokens = ['mon', 'tue', 'tue', 'thu', 'fri', 'sat', 'sun'];
-    const { issues } = analyzeStandaloneCard(card, { weekdayButtonTokens: tokens });
+  it('위치별 칸 검사: n번째 칸 요일이 그 자리와 다르면 오타로 잡는다(card1: 3번째 Tue→Wed)', () => {
+    // card1: 강조 Thu 는 못 읽어 null, 3번째 칸이 wed 여야 하는데 tue 로 읽힘.
+    const cells = ['mon', 'tue', 'tue', null, 'fri', 'sat', 'sun'];
+    const { issues } = analyzeStandaloneCard('데일리 커피 챗', { weekdayButtons: { cells } });
     const issue = issues.find((i) => i.title === '요일 버튼 오타');
     expect(issue).toBeTruthy();
     expect(issue?.severity).toBe('error');
+    expect(issue?.description).toContain('3번째');
   });
 
-  it('강조 버튼이 OCR에서 빠져 6개만 읽혀도, 빠진 요일이 선택 요일과 다르면 오타로 잡는다', () => {
-    // card1 실측: 강조된 Tue 하나가 빠져 6개만 읽힘 → readable에 Wed 가 없고 Tue 가 있음.
-    // 선택 요일은 화요일(2). 빠진 게 Wed(선택 요일 아님) → 오타.
-    const tokens = ['mon', 'tue', 'thu', 'fri', 'sat', 'sun']; // Wed 누락
-    const { issues } = analyzeStandaloneCard('x', { weekdayButtonTokens: tokens, weekdayButton: 2 });
-    // analyzeStandaloneCard는 시트 선택요일을 모르므로, 여기선 selectedWeekday 인자를 못 받는다.
-    // 대신 시트 연동 경로(reviewEvent)에서 검증한다. standalone에선 중복만 확실히 잡는다.
-    // 이 케이스는 standalone에선 안 잡히는 게 정상(선택 요일 정보 없음).
+  it('전체 토큰에 요일 중복이 있으면 오타로 잡는다(card2: Fri 중복)', () => {
+    const tokens = ['mon', 'tue', 'wed', 'fri', 'fri', 'sun'];
+    const { issues } = analyzeStandaloneCard('데일리 커피 챗', { weekdayButtons: { tokens } });
+    const issue = issues.find((i) => i.title === '요일 버튼 오타');
+    expect(issue).toBeTruthy();
+    expect(issue?.description).toContain('중복');
+  });
+
+  it('버튼이 Mon~Sun 정상이면 요일 버튼 오타로 안 잡는다', () => {
+    const cells = ['mon', 'tue', 'wed', null, 'fri', 'sat', 'sun'];
+    const tokens = ['mon', 'tue', 'wed', 'fri', 'sat', 'sun'];
+    const { issues } = analyzeStandaloneCard('데일리 커피 챗', { weekdayButtons: { cells, tokens } });
     expect(issues.some((i) => i.title === '요일 버튼 오타')).toBe(false);
   });
 
-  it('버튼 토큰이 Mon~Sun 정상이면 요일 버튼 오타로 안 잡는다', () => {
-    const tokens = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
-    const { issues } = analyzeStandaloneCard('데일리 커피 챗', { weekdayButtonTokens: tokens });
-    expect(issues.some((i) => i.title === '요일 버튼 오타')).toBe(false);
-  });
-
-  it('시트 연동: 강조 버튼 빠져 6개만 읽혀도 빠진 요일≠선택 요일이면 오타로 잡는다(card1)', () => {
+  it('시트 연동: 강조 버튼 빠져 6개만 읽혀도 빠진 요일≠선택 요일이면 오타로 잡는다', () => {
     const f = FIXTURES['daily-coffee-chat-kr'];
     // fixture rows[0] 날짜는 "7월 8일 수요일"(수=weekday 3).
     const e = normalizeRow('daily-coffee-chat-kr', f.headers, f.rows[0]!, {
@@ -457,9 +456,9 @@ describe('시트 없이 카드 단독 검수 (이미지/붙여넣기)', () => {
       rowIndex: 0,
       refDate: new Date('2026-07-01'),
     });
-    // 선택 요일은 수요일인데, 강조 버튼(수)이 빠지는 대신 Tue 가 빠져 읽힘 → Tue 자리가 이상.
-    const tokens = ['mon', 'wed', 'wed', 'thu', 'fri', 'sat', 'sun']; // Tue 누락, Wed 중복
-    const review = reviewEvent(e, '데일리 커피 챗', { weekdayButtonTokens: tokens });
+    // 선택 요일은 수요일인데 Tue 가 빠져 읽힘(강조=수 빠지는 게 정상인데 Tue도 없음) → 이상.
+    const tokens = ['mon', 'wed', 'thu', 'fri', 'sat', 'sun']; // Tue 누락
+    const review = reviewEvent(e, '데일리 커피 챗', { weekdayButtons: { tokens } });
     expect(review.cardIssues.some((i) => i.title === '요일 버튼 오타')).toBe(true);
   });
 });

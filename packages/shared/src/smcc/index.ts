@@ -12,6 +12,7 @@ export * from './engine/validate-event';
 export * from './engine/validate-card-text';
 export * from './engine/analyze-standalone';
 export * from './validators/place-match';
+export type { WeekdayButtonScan } from './validators/consistency';
 export * from './fixtures';
 
 import type { CanonicalCardFields, NormalizedEvent, SmccIssue } from './schemas';

@@ -86,64 +86,98 @@ const WEEKDAY_BUTTON_LABEL: Record<string, string> = {
 const WEEKDAY_INDEX_TO_BUTTON = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
 
 /**
- * [상단 요일 버튼 자체의 오타] 카드 상단엔 항상 Mon~Sun 7개 버튼이 하나씩 있어야 하는데,
+ * 상단 요일 버튼 OCR 결과. 버튼은 아이콘 스타일(연한 색·강조)이라 카드 전체 OCR로는 뭉개져서,
+ * 호출부(workspace)에서 버튼 줄만 따로 두 방식으로 읽어 넘긴다:
+ *  - cells: 7칸(0=Mon자리 ~ 6=Sun자리)을 한 칸씩 잘라 인식한 값(못 읽으면 null). 위치가 어긋난
+ *    버튼(예: 3번째 칸이 Wed가 아니라 Tue)을 정확히 집어낸다.
+ *  - tokens: 버튼 줄 전체를 한 번에 인식한 요일 토큰들(순서 있음). 같은 요일 중복을 잡는다.
+ */
+export interface WeekdayButtonScan {
+  cells?: Array<string | null>;
+  tokens?: string[];
+}
+
+const weekdayTypoIssue = (
+  description: string,
+  actual: string,
+  confidence: number,
+  resolutionHint: string,
+): RawSmccIssue => ({
+  category: 'date-rule',
+  severity: 'error',
+  title: '요일 버튼 오타',
+  description,
+  expected: WEEKDAY_BUTTON_ORDER.map((d) => WEEKDAY_BUTTON_LABEL[d]).join(' '),
+  actual,
+  confidence,
+  resolutionHint,
+});
+
+/**
+ * [상단 요일 버튼 자체의 오타] 카드 상단엔 항상 Mon~Sun 7개 버튼이 하나씩 순서대로 있어야 하는데,
  * 디자이너가 복사/붙여넣기하다가 한 요일을 두 번 넣고 다른 요일을 빠뜨리는 실수가 있다.
- * 예: "Mon Tue Tue Thu Fri Sat Sun" (Tue 중복, Wed 누락).
- *
- * 카드 상단 요일 버튼은 아이콘 스타일(연한 색·강조 버튼)이라 카드 전체 OCR로는 제대로 안 읽힌다.
- * 그래서 호출부(workspace)에서 상단 버튼 영역만 잘라 별도 OCR한 요일 토큰 목록(buttonTokens)을
- * 넘겨주면 그걸 기준으로 검사한다. selectedWeekday(0=일~6=토, 시트 날짜의 요일)를 알면
- * "강조 안 된 6개 버튼에서 요일 하나가 빠졌는데 그게 강조(선택) 요일이 아닌 경우"도 잡는다.
+ * 예: "Mon Tue Tue Thu Fri Sat Sun" (3번째가 Wed가 아니라 Tue).
+ * selectedWeekday(0=일~6=토, 날짜의 요일)를 알면 강조 버튼이 OCR에서 빠져도 보정 검사를 한다.
  */
 export function scanWeekdayButtonRowTypo(
-  buttonTokens: string[] | undefined,
+  scan: WeekdayButtonScan | undefined,
   selectedWeekday?: number | null,
 ): RawSmccIssue[] {
-  if (!buttonTokens) return [];
-  const days = buttonTokens
+  if (!scan) return [];
+  const label = (d: string) => WEEKDAY_BUTTON_LABEL[d] ?? d;
+
+  // 1) 위치별 검사: n번째 칸이 그 자리 요일과 다른 valid 요일이면 확실한 오타.
+  const cells = scan.cells ?? [];
+  for (let i = 0; i < 7; i++) {
+    const c = (cells[i] ?? '').toLowerCase();
+    if (c && WEEKDAY_BUTTON_ORDER.includes(c) && c !== WEEKDAY_BUTTON_ORDER[i]) {
+      const readable = cells.map((x, idx) => (x ? label(x) : label(WEEKDAY_BUTTON_ORDER[idx]!))).join(' ');
+      return [
+        weekdayTypoIssue(
+          `${i + 1}번째 요일 버튼이 "${label(c)}" 입니다. "${label(WEEKDAY_BUTTON_ORDER[i]!)}" 여야 합니다.`,
+          readable,
+          0.85,
+          `${i + 1}번째 버튼을 "${label(WEEKDAY_BUTTON_ORDER[i]!)}" 로 바꾸세요.`,
+        ),
+      ];
+    }
+  }
+
+  // 2) 전체 토큰 검사(중복/누락).
+  const days = (scan.tokens ?? [])
     .map((t) => t.toLowerCase())
     .filter((t) => WEEKDAY_BUTTON_ORDER.includes(t));
-  // OCR이 절반도 못 읽었으면 판단 불가 — 오탐 방지로 건너뛴다.
-  if (days.length < 6) return [];
+  if (days.length < 6) return []; // 절반도 못 읽었으면 판단 불가 — 오탐 방지.
 
   const counts = new Map<string, number>();
   for (const d of days) counts.set(d, (counts.get(d) ?? 0) + 1);
   const duplicated = [...counts.entries()].filter(([, c]) => c > 1).map(([d]) => d);
   const missing = WEEKDAY_BUTTON_ORDER.filter((d) => !counts.has(d));
-  const label = (d: string) => WEEKDAY_BUTTON_LABEL[d] ?? d;
 
-  // 1) 같은 요일이 두 번 이상 → 확실한 오타(정상 카드엔 각 요일이 딱 한 번).
+  // 2a) 같은 요일이 두 번 이상 → 확실한 오타.
   if (duplicated.length > 0) {
     return [
-      {
-        category: 'date-rule',
-        severity: 'error',
-        title: '요일 버튼 오타',
-        description: `요일 버튼에 "${duplicated.map(label).join(', ')}" 이(가) 중복됩니다. 요일 버튼은 Mon~Sun이 하나씩만 있어야 합니다.`,
-        expected: WEEKDAY_BUTTON_ORDER.map(label).join(' '),
-        actual: days.map(label).join(' '),
-        confidence: 0.85,
-        resolutionHint: '중복된 요일을 빠진 요일로 바꾸세요.',
-      },
+      weekdayTypoIssue(
+        `요일 버튼에 "${duplicated.map(label).join(', ')}" 이(가) 중복됩니다. 요일 버튼은 Mon~Sun이 하나씩만 있어야 합니다.`,
+        days.map(label).join(' '),
+        0.85,
+        '중복된 요일을 빠진 요일로 바꾸세요.',
+      ),
     ];
   }
 
-  // 2) (시트 연동 시) 강조 버튼은 보통 OCR이 못 읽어 딱 하나가 빠져 보인다. 그 빠진 요일이
-  //    실제 선택(강조) 요일과 다르면, 강조 안 된 자리 중 하나가 잘못 적힌 것이다.
+  // 2b) 강조 버튼은 보통 OCR이 못 읽어 딱 하나가 빠져 보인다. 그 빠진 요일이 실제 선택(강조)
+  //     요일과 다르면, 강조 안 된 자리 중 하나가 잘못 적힌 것이다.
   if (selectedWeekday != null && missing.length === 1) {
     const selectedButton = WEEKDAY_INDEX_TO_BUTTON[selectedWeekday];
     if (selectedButton && missing[0] !== selectedButton) {
       return [
-        {
-          category: 'date-rule',
-          severity: 'error',
-          title: '요일 버튼 오타',
-          description: `요일 버튼에 "${label(missing[0]!)}" 이(가) 빠져 있습니다. 요일 버튼은 Mon~Sun이 하나씩 있어야 합니다.`,
-          expected: WEEKDAY_BUTTON_ORDER.map(label).join(' '),
-          actual: days.map(label).join(' '),
-          confidence: 0.7,
-          resolutionHint: `빠진 "${label(missing[0]!)}" 요일이 있는지 확인하세요.`,
-        },
+        weekdayTypoIssue(
+          `요일 버튼에 "${label(missing[0]!)}" 이(가) 빠져 있습니다. 요일 버튼은 Mon~Sun이 하나씩 있어야 합니다.`,
+          days.map(label).join(' '),
+          0.7,
+          `빠진 "${label(missing[0]!)}" 요일이 있는지 확인하세요.`,
+        ),
       ];
     }
   }
