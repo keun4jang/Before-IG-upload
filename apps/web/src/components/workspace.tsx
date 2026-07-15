@@ -167,17 +167,22 @@ export function Workspace({ initial }: { initial: ProjectDetail }) {
    * 카드 텍스트를 비교 검수하고, 연동하지 않은 슬라이드는 카드 텍스트만 보고 추론하는 방식
    * (standalone)으로 대체 검수한다. 이미지마다 다른 신청 건일 수 있어서 슬라이드 단위로 나눈다.
    */
-  function runRuleCheck(texts: Map<number, string>): DisplayIssue[] {
+  function runRuleCheck(
+    texts: Map<number, string>,
+    buttonTokens: Map<number, string[]>,
+  ): DisplayIssue[] {
     const out: DisplayIssue[] = [];
     for (const s of slides) {
       const text = texts.get(s.slideNumber) ?? s.editedText ?? s.rawText;
-      if (!text.trim()) continue;
+      const tokens = buttonTokens.get(s.slideNumber);
+      // 카드 텍스트가 비어도 요일 버튼 오타는 검사할 수 있으므로 tokens 가 있으면 진행한다.
+      if (!text.trim() && !tokens) continue;
       const linkedEv = resolveLinkedEvent(slideLinks[s.slideNumber]);
       if (linkedEv) {
-        const { issues } = smcc.reviewEvent(linkedEv, text);
+        const { issues } = smcc.reviewEvent(linkedEv, text, { weekdayButtonTokens: tokens });
         for (const i of issues) out.push(fromSmccIssue(`슬라이드 ${s.slideNumber}`, i));
       } else {
-        const { issues } = smcc.analyzeStandaloneCard(text);
+        const { issues } = smcc.analyzeStandaloneCard(text, { weekdayButtonTokens: tokens });
         for (const i of issues) out.push(fromSmccIssue(`슬라이드 ${s.slideNumber}`, i));
       }
     }
@@ -223,6 +228,20 @@ export function Workspace({ initial }: { initial: ProjectDetail }) {
         }
       }
 
+      // 2) 상단 요일 버튼은 카드 전체 OCR로는 잘 안 읽혀서, 버튼 영역만 따로 잘라 OCR한다.
+      const buttonTokens = new Map<number, string[]>();
+      const withImage = slides.filter((s) => s.previewUrl);
+      for (let i = 0; i < withImage.length; i++) {
+        const s = withImage[i]!;
+        setProgress({
+          step: 'ocr',
+          percent: 20 + Math.round(((i + 1) / withImage.length) * 5),
+          message: `요일 버튼 확인 중 (${i + 1}/${withImage.length})`,
+        });
+        const tokens = await extractWeekdayButtons(s.previewUrl!);
+        if (tokens.length > 0) buttonTokens.set(s.slideNumber, tokens);
+      }
+
       const input = buildInput(finalTexts);
       const analysisPromise = runAnalysis(input);
       for (const step of ANALYSIS_STEPS) {
@@ -241,7 +260,7 @@ export function Workspace({ initial }: { initial: ProjectDetail }) {
         result: analysisResult,
         progress: { step: 'finalize', percent: 100, message: '완료' },
       });
-      setRuleIssues(runRuleCheck(finalTexts));
+      setRuleIssues(runRuleCheck(finalTexts, buttonTokens));
       api.runAnalysis(projectId).catch(() => {});
     } catch (err) {
       setError(err instanceof Error ? err.message : '검수 중 문제가 발생했어요.');
@@ -366,6 +385,59 @@ export function Workspace({ initial }: { initial: ProjectDetail }) {
       return { text, confidence: (data.confidence ?? 50) / 100 };
     } catch {
       return null;
+    }
+  }
+
+  /**
+   * 상단 요일 버튼(Mon~Sun)만 따로 인식한다. 이 버튼들은 연한 색·강조 스타일이라 카드 전체
+   * OCR로는 뭉개지는데, 버튼 줄 영역만 잘라 요일 단어만 허용(whitelist)해 OCR하면 훨씬
+   * 잘 읽힌다(실측 확인). 결과는 소문자 요일 토큰 배열(예: ['mon','tue','tue',...]).
+   */
+  async function extractWeekdayButtons(imageDataUrl: string): Promise<string[]> {
+    try {
+      const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+        const el = new Image();
+        el.onload = () => resolve(el);
+        el.onerror = reject;
+        el.src = imageDataUrl;
+      });
+      // 카드 상단 버튼 줄 영역(세로 10~18%)만 잘라낸다.
+      const y0 = Math.round(img.naturalHeight * 0.1);
+      const y1 = Math.round(img.naturalHeight * 0.18);
+      const h = Math.max(1, y1 - y0);
+      const canvas = document.createElement('canvas');
+      canvas.width = img.naturalWidth;
+      canvas.height = h;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return [];
+      ctx.drawImage(img, 0, y0, img.naturalWidth, h, 0, 0, img.naturalWidth, h);
+      const stripUrl = canvas.toDataURL('image/png');
+
+      const { createWorker, PSM } = await import('tesseract.js');
+      const timeout = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('timeout')), 30000),
+      );
+      const recognizePromise = (async () => {
+        const worker = await createWorker('eng', 1, {
+          workerPath: '/tesseract/worker.min.js',
+          corePath: '/tesseract/tesseract-core-lstm.wasm.js',
+          langPath: '/tessdata',
+        });
+        try {
+          await worker.setParameters({
+            tessedit_pageseg_mode: PSM.SPARSE_TEXT,
+            tessedit_char_whitelist: 'MonTueWedThuFriSatSun ',
+            preserve_interword_spaces: '1',
+          });
+          return await worker.recognize(stripUrl);
+        } finally {
+          await worker.terminate();
+        }
+      })();
+      const { data } = await Promise.race([recognizePromise, timeout]);
+      return (data.text.match(/\b(mon|tue|wed|thu|fri|sat|sun)\b/gi) ?? []).map((t) => t.toLowerCase());
+    } catch {
+      return [];
     }
   }
 

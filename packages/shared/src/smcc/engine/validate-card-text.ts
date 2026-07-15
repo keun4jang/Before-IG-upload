@@ -16,6 +16,8 @@ import { withIds } from './validate-event';
 export interface CardReviewOptions {
   /** 카드 상단 요일 버튼 (0=일 ~ 6=토). 지정 시 날짜 요일과 교차검증. */
   weekdayButton?: number | null;
+  /** 카드 상단 요일 버튼 영역만 따로 OCR한 요일 토큰들(예: ['mon','tue','tue',...]). 버튼 오타 검사용. */
+  weekdayButtonTokens?: string[];
 }
 
 function norm(s: string): string {
@@ -56,7 +58,7 @@ export function validateCardText(
   cardText: string,
   options: CardReviewOptions = {},
 ): SmccIssue[] {
-  if (!cardText.trim() && options.weekdayButton == null) return [];
+  if (!cardText.trim() && options.weekdayButton == null && !options.weekdayButtonTokens) return [];
   const raw: RawSmccIssue[] = [
     ...scanBadCurrency(cardText),
     ...scanForbiddenCondition(cardText),
@@ -72,7 +74,7 @@ export function validateCardText(
     ...validateAddressRegion(e, cardText),
     ...validateRouteEndpoints(e),
     ...validateWeekdayButton(e, options.weekdayButton),
-    ...scanWeekdayButtonRowTypo(cardText),
+    ...scanWeekdayButtonRowTypo(options.weekdayButtonTokens, e.weekdayExpected),
   ];
   return withIds(raw, 'card');
 }

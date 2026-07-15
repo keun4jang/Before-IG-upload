@@ -161,10 +161,10 @@ export interface StandaloneResult {
  */
 export function analyzeStandaloneCard(
   cardText: string,
-  options: { weekdayButton?: number | null } = {},
+  options: { weekdayButton?: number | null; weekdayButtonTokens?: string[] } = {},
 ): StandaloneResult {
   const event = inferEventFromCard(cardText);
-  if (!cardText.trim() && options.weekdayButton == null) {
+  if (!cardText.trim() && options.weekdayButton == null && !options.weekdayButtonTokens) {
     return { event, issues: [] };
   }
   const raw: RawSmccIssue[] = [
@@ -178,7 +178,7 @@ export function analyzeStandaloneCard(
     ...validateAddressRegion(event, cardText),
     ...validateRouteEndpoints(event),
     ...validateWeekdayButton(event, options.weekdayButton),
-    ...scanWeekdayButtonRowTypo(cardText),
+    ...scanWeekdayButtonRowTypo(options.weekdayButtonTokens, event.weekdayExpected),
   ];
   return { event, issues: withIds(raw, 'card') };
 }
