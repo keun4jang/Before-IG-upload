@@ -1,21 +1,6 @@
 import { PROGRAM_CONFIG } from '../program-config';
 import type { NormalizedEvent, RawSmccIssue } from '../schemas';
 
-function escapeRe(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
-/** 카드 텍스트에서 "원문 유지 허용" 영역(카페명/지점/주소/호스트)을 제거한 나머지 */
-function stripAllowedOrigin(e: NormalizedEvent, cardText: string): string {
-  let t = cardText;
-  for (const field of [e.cafeName, e.cafeBranch, e.cafeAddress, e.hostInstagram, e.meetupSpotName, e.meetupSpotAddress]) {
-    if (field && field.trim()) {
-      t = t.replace(new RegExp(escapeRe(field), 'gi'), ' ');
-    }
-  }
-  return t;
-}
-
 const WORD_KOREAN_EN = /\bkorean\b/i;
 const WORD_ENGLISH_EN = /\benglish\b/i;
 const WORD_HANGUGEO = /한국어/;
@@ -85,104 +70,77 @@ export function validateLanguageLabel(e: NormalizedEvent, cardText: string): Raw
 }
 
 /**
- * KR 카드에 금지되는 영어 UI 라벨 / EN 카드에 금지되는 한글 UI 라벨.
- * "Date"/"Meet at"는 SMCC 카드 템플릿 자체가 카드 언어와 무관하게 항상 영어로 고정
- * 표기하는 UI 라벨이라 여기서 제외한다(실제 카드 확인 결과, KR 카드에도 항상 영어로 나옴).
+ * 카드 UI 라벨(Date, Meet at 등)은 SMCC 템플릿이 카드 언어와 무관하게 항상 영어로 고정
+ * 표기하므로, "라벨 언어가 카드와 다르다"는 검사는 오탐만 많아서(예: "Time After Time" 카페명이
+ * "Time" 라벨로 오인) 하지 않는다. 하위호환을 위해 빈 배열을 반환한다.
  */
-const EN_LABELS_FORBIDDEN_IN_KR: Array<{ re: RegExp; word: string }> = [
-  { re: /\btime\b/i, word: 'Time' },
-  { re: /\blocation\b/i, word: 'Location' },
-  { re: /\blanguage\b/i, word: 'Language' },
-  { re: /\bfee\b/i, word: 'Fee' },
-];
-
-const KR_LABELS_FORBIDDEN_IN_EN: Array<{ re: RegExp; word: string }> = [
-  { re: /날짜/, word: '날짜' },
-  { re: /집결지|만나는\s*곳/, word: '집결지' },
-  { re: /시간/, word: '시간' },
-  { re: /언어/, word: '언어' },
-  { re: /참가비/, word: '참가비' },
-];
-
-/**
- * [forbidden-label rule] 카드 안의 UI 라벨이 카드 언어와 다른 언어면 오류.
- * 예: KR 카드에 "Date", "Meet at" 같은 영어 라벨 — SMCC 규칙 위반.
- */
-export function validateCardLabels(e: NormalizedEvent, cardText: string): RawSmccIssue[] {
-  const issues: RawSmccIssue[] = [];
-  const isKr = e.languageMode === 'KR';
-  const list = isKr ? EN_LABELS_FORBIDDEN_IN_KR : KR_LABELS_FORBIDDEN_IN_EN;
-
-  for (const item of list) {
-    if (item.re.test(cardText)) {
-      issues.push({
-        category: 'language-mismatch',
-        severity: 'error',
-        title: isKr ? 'KR 카드에 영어 라벨 사용' : 'EN 카드에 한글 라벨 사용',
-        description: `"${item.word}" 라벨은 이 카드 언어에 맞지 않습니다.`,
-        actual: item.word,
-        confidence: 0.85,
-        resolutionHint: isKr ? '라벨을 한글로 바꾸거나 제거하세요.' : 'Remove or translate the label.',
-      });
-    }
-  }
-  return issues;
+export function validateCardLabels(_e: NormalizedEvent, _cardText: string): RawSmccIssue[] {
+  return [];
 }
 
 /**
- * [mixed-language rule] 카드 전체 수준의 언어 혼용 검사(soft).
- * 카페명/지점/주소/호스트/집결지 등 "원문 유지 허용" 영역을 제외한 나머지에서
- * 카드 언어와 다른 언어 비중이 높으면 경고.
+ * [언어 일관성] 카드에 선언된 진행 언어(언어 아이콘 값)에 맞춰 프로그램명·참가조건이
+ * 그 언어로 표기됐는지 검사한다. SMCC 규칙: 언어가 English면 프로그램명/참가조건도 영어,
+ * 한국어면 한글. 그 외 잡다한 "혼용" 경고는 오탐이 많아 하지 않는다.
  */
 export function validateCardLanguage(e: NormalizedEvent, cardText: string): RawSmccIssue[] {
   const issues: RawSmccIssue[] = [];
   const config = PROGRAM_CONFIG[e.programType];
-  const cleaned = stripAllowedOrigin(e, cardText);
+  if (config.allowAnyLanguage) return issues;
+  const has = (s: string) => cardText.toLowerCase().replace(/\s+/g, '').includes(s.toLowerCase().replace(/\s+/g, ''));
 
   if (e.languageMode === 'EN') {
-    // EN 카드에 한국어 프로그램명 사용 → 오류
-    if (cardText.includes(config.nameKr)) {
+    // 프로그램명: 영문이어야 하는데 한글로 써있음
+    if (has(config.nameKr)) {
       issues.push({
         category: 'language-mismatch',
         severity: 'error',
-        title: 'EN 카드에 한국어 프로그램명',
-        description: '영문 카드에는 영문 프로그램명을 사용하세요.',
+        title: '영문 카드에 한글 프로그램명',
+        description: `언어가 English인 카드입니다. 프로그램명도 영문 "${config.nameEn}" 으로 표기하세요.`,
         expected: config.nameEn,
         actual: config.nameKr,
         confidence: 0.9,
+        resolutionHint: `"${config.nameKr}" → "${config.nameEn}"`,
       });
     }
-    if (/[가-힣]{2,}/.test(cleaned)) {
-      issues.push({
-        category: 'language-mismatch',
-        severity: 'warning',
-        title: '영문 카드에 한국어 혼용',
-        description: '카페명·고유명사를 제외한 한국어가 있는지 확인하세요.',
-        confidence: 0.55,
-      });
-    }
-  } else {
-    // KR 카드에 영문 프로그램명
-    if (cardText.includes(config.nameEn) && !cardText.includes(config.nameKr)) {
+    // 참가조건: 영문이어야 하는데 한글("1인 1잔")로 써있음
+    if (e.feeMode === 'free' && has('1인 1잔')) {
       issues.push({
         category: 'language-mismatch',
         severity: 'error',
-        title: 'KR 카드에 영문 프로그램명',
-        description: '한글 카드에는 한글 프로그램명을 사용하세요.',
-        expected: config.nameKr,
-        actual: config.nameEn,
-        confidence: 0.8,
+        title: '영문 카드에 한글 참가조건',
+        description: '언어가 English인 카드입니다. 참가조건도 영문 "Min. 1 Drink" 으로 표기하세요.',
+        expected: 'Min. 1 Drink',
+        actual: '1인 1잔',
+        confidence: 0.9,
+        resolutionHint: '"1인 1잔" → "Min. 1 Drink"',
       });
     }
-    // 원문 유지 허용 영역을 제외하고도 남는 영어 단어 수 (강화: 임계값 하향 + 경고로 격상)
-    const latinCount = (cleaned.match(/[A-Za-z]{3,}/g) ?? []).length;
-    if (latinCount >= 3) {
+  } else {
+    // 프로그램명: 한글이어야 하는데 영문으로 써있음
+    if (has(config.nameEn) && !has(config.nameKr)) {
       issues.push({
         category: 'language-mismatch',
-        severity: 'warning',
-        title: '한글 카드에 영어 혼용',
-        description: '카페명·고유명사 외 영어 표현이 있는지 확인하세요.',
-        confidence: 0.5,
+        severity: 'error',
+        title: '한글 카드에 영문 프로그램명',
+        description: `언어가 한국어인 카드입니다. 프로그램명도 한글 "${config.nameKr}" 으로 표기하세요.`,
+        expected: config.nameKr,
+        actual: config.nameEn,
+        confidence: 0.85,
+        resolutionHint: `"${config.nameEn}" → "${config.nameKr}"`,
+      });
+    }
+    // 참가조건: 한글이어야 하는데 영문("Min. 1 Drink")으로 써있음
+    if (e.feeMode === 'free' && has('Min. 1 Drink')) {
+      issues.push({
+        category: 'language-mismatch',
+        severity: 'error',
+        title: '한글 카드에 영문 참가조건',
+        description: '언어가 한국어인 카드입니다. 참가조건도 한글 "1인 1잔" 으로 표기하세요.',
+        expected: '1인 1잔',
+        actual: 'Min. 1 Drink',
+        confidence: 0.85,
+        resolutionHint: '"Min. 1 Drink" → "1인 1잔"',
       });
     }
   }

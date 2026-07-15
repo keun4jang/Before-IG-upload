@@ -154,11 +154,13 @@ export function scanWeekdayButtonRowTypo(
   const duplicated = [...counts.entries()].filter(([, c]) => c > 1).map(([d]) => d);
   const missing = WEEKDAY_BUTTON_ORDER.filter((d) => !counts.has(d));
 
-  // 2a) 같은 요일이 두 번 이상 → 확실한 오타.
-  if (duplicated.length > 0) {
+  // 2a) 같은 요일이 두 번 이상 "이면서" 빠진 요일이 있을 때만 진짜 오타.
+  //     버튼은 원래 7개인데, OCR이 한 버튼을 두 번 읽어(예: "...Fri Fri Sat Sat...") 토큰이
+  //     7개를 넘고 빠진 요일이 없으면 그건 인식 노이즈지 실제 오타가 아니다 — 오탐 방지.
+  if (duplicated.length > 0 && missing.length > 0) {
     return [
       weekdayTypoIssue(
-        `요일 버튼에 "${duplicated.map(label).join(', ')}" 이(가) 중복됩니다. 요일 버튼은 Mon~Sun이 하나씩만 있어야 합니다.`,
+        `요일 버튼에 "${duplicated.map(label).join(', ')}" 이(가) 중복되고 "${missing.map(label).join(', ')}" 이(가) 빠졌습니다. 요일 버튼은 Mon~Sun이 하나씩만 있어야 합니다.`,
         days.map(label).join(' '),
         0.85,
         '중복된 요일을 빠진 요일로 바꾸세요.',

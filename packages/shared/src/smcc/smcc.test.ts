@@ -193,11 +193,12 @@ describe('실전 버그 재현: KR 카드에 영어 언어표기/영어 라벨 (
     expect(review.cardIssues.some((i) => i.actual === 'Meet at')).toBe(false);
   });
 
-  it('mixed-language 경고도 함께 감지', () => {
+  it('"Korean" 언어표기 오류는 여전히 잡되, 막연한 "영어 혼용" 경고는 더 이상 내지 않는다', () => {
     const review = reviewEvent(buildEvent(), cardText);
-    expect(
-      review.cardIssues.some((i) => i.category === 'language-mismatch' && i.title === '한글 카드에 영어 혼용'),
-    ).toBe(true);
+    // "Korean" 표기 오류는 유지
+    expect(review.cardIssues.some((i) => i.actual === 'Korean')).toBe(true);
+    // 카페명/주소 때문에 뜨던 막연한 "영어 혼용" 경고는 제거됨(오탐 방지)
+    expect(review.cardIssues.some((i) => i.title === '한글 카드에 영어 혼용')).toBe(false);
   });
 
   it('종합: 이 카드는 절대 "이슈 없음"이면 안 된다 (최소 2개 오류)', () => {
@@ -460,5 +461,72 @@ describe('시트 없이 카드 단독 검수 (이미지/붙여넣기)', () => {
     const tokens = ['mon', 'wed', 'thu', 'fri', 'sat', 'sun']; // Tue 누락
     const review = reviewEvent(e, '데일리 커피 챗', { weekdayButtons: { tokens } });
     expect(review.cardIssues.some((i) => i.title === '요일 버튼 오타')).toBe(true);
+  });
+
+  it('버튼이 정상인데 OCR이 두 번 읽어 토큰이 7개 초과+빠진 요일 없으면 오탐으로 잡지 않는다', () => {
+    // 실제: 정상 "Mon Tue Wed Thu Fri Sat Sun" 인데 OCR이 Fri/Sat 를 두 번 읽음.
+    const tokens = ['mon', 'tue', 'wed', 'thu', 'fri', 'fri', 'sat', 'sat', 'sun'];
+    const cells = ['mon', 'tue', 'wed', null, 'fri', 'sat', 'sun'];
+    const { issues } = analyzeStandaloneCard('데일리 커피 챗\n한국어', { weekdayButtons: { cells, tokens } });
+    expect(issues.some((i) => i.title === '요일 버튼 오타')).toBe(false);
+  });
+});
+
+describe('언어 일관성 & 지역 (실제 카드 피드백 반영)', () => {
+  it('언어 아이콘이 English 이면 English 표기는 오류가 아니고, 한글 프로그램명이 오류다', () => {
+    // 박이현 카드: 언어 English, 프로그램명 "데일리 커피 챗"(한글) → 프로그램명 오류.
+    const card = ['English', '데일리 커피 챗', 'Melbourne', 'Min. 1 Drink', 'Jul 3rd, Fri'].join('\n');
+    const { event, issues } = analyzeStandaloneCard(card);
+    expect(event.languageMode).toBe('EN');
+    // "English" 를 오류로 잡으면 안 된다
+    expect(issues.some((i) => i.actual === 'English')).toBe(false);
+    // 한글 프로그램명은 오류로 잡아야 한다
+    expect(issues.some((i) => i.title === '영문 카드에 한글 프로그램명')).toBe(true);
+  });
+
+  it('English 카드에 한글 참가조건("1인 1잔") → 오류(Min. 1 Drink)', () => {
+    const card = ['English', 'Daily Coffee Chat', 'Yeouido', '1인 1잔', 'Jul 1st, Wed'].join('\n');
+    const { issues } = analyzeStandaloneCard(card);
+    expect(issues.some((i) => i.title === '영문 카드에 한글 참가조건')).toBe(true);
+  });
+
+  it('English 카드에 한글 지역명("여의도") → 오류(Yeouido)', () => {
+    const card = ['English', 'Daily Coffee Chat', '여의도', 'Min. 1 Drink', 'Jul 1st, Wed'].join('\n');
+    const { issues } = analyzeStandaloneCard(card);
+    expect(
+      issues.some((i) => i.title === '영문 카드에 한글 지역명' && i.expected === 'Yeouido'),
+    ).toBe(true);
+  });
+
+  it('한국어 카드에 영문 참가조건("Min. 1 Drink") → 오류(1인 1잔)', () => {
+    const card = ['한국어', '데일리 커피 챗', '성수', 'Min. 1 Drink', '7월 1일 수요일'].join('\n');
+    const { issues } = analyzeStandaloneCard(card);
+    expect(issues.some((i) => i.title === '한글 카드에 영문 참가조건')).toBe(true);
+  });
+
+  it('지역명 오타("여위도" → "여의도")를 잡는다', () => {
+    const card = ['한국어', '북 다이브', '여위도 63빌딩', '15,000원', '7월 3일 금요일'].join('\n');
+    const { issues } = analyzeStandaloneCard(card);
+    expect(
+      issues.some((i) => i.title === '지역명 오타 의심' && i.expected === '여의도'),
+    ).toBe(true);
+  });
+
+  it('정상 지역명("여의도")은 오타로 잡지 않는다', () => {
+    const card = ['한국어', '북 다이브', '여의도 63빌딩', '15,000원', '7월 3일 금요일'].join('\n');
+    const { issues } = analyzeStandaloneCard(card);
+    expect(issues.some((i) => i.title === '지역명 오타 의심')).toBe(false);
+  });
+
+  it('국내 지역(성수)인데 달러($30) → 통화 오류', () => {
+    const card = ['한국어', '에스프레소 런', '성수', '$ 30', '7월 3일 금요일'].join('\n');
+    const { issues } = analyzeStandaloneCard(card);
+    expect(issues.some((i) => i.category === 'fee-rule' && /달러|통화/.test(i.title))).toBe(true);
+  });
+
+  it('"Time After Time" 카페명이 "Time" 라벨 오류로 오인되지 않는다', () => {
+    const card = ['한국어', '북 다이브', '멜버른', 'Meet at\nTime After Time', '7월 2일 목요일'].join('\n');
+    const { issues } = analyzeStandaloneCard(card);
+    expect(issues.some((i) => i.actual === 'Time')).toBe(false);
   });
 });

@@ -169,20 +169,21 @@ export function Workspace({ initial }: { initial: ProjectDetail }) {
    */
   function runRuleCheck(
     texts: Map<number, string>,
-    weekdayButtons: Map<number, smcc.WeekdayButtonScan>,
+    weekdayButtons: Map<number, { scan: smcc.WeekdayButtonScan; weekdayButton: number | null }>,
   ): DisplayIssue[] {
     const out: DisplayIssue[] = [];
     for (const s of slides) {
       const text = texts.get(s.slideNumber) ?? s.editedText ?? s.rawText;
-      const buttons = weekdayButtons.get(s.slideNumber);
-      // 카드 텍스트가 비어도 요일 버튼 오타는 검사할 수 있으므로 buttons 가 있으면 진행한다.
-      if (!text.trim() && !buttons) continue;
+      const btn = weekdayButtons.get(s.slideNumber);
+      // 카드 텍스트가 비어도 요일 버튼 오타는 검사할 수 있으므로 btn 이 있으면 진행한다.
+      if (!text.trim() && !btn) continue;
+      const opts = { weekdayButtons: btn?.scan, weekdayButton: btn?.weekdayButton ?? null };
       const linkedEv = resolveLinkedEvent(slideLinks[s.slideNumber]);
       if (linkedEv) {
-        const { issues } = smcc.reviewEvent(linkedEv, text, { weekdayButtons: buttons });
+        const { issues } = smcc.reviewEvent(linkedEv, text, opts);
         for (const i of issues) out.push(fromSmccIssue(`슬라이드 ${s.slideNumber}`, i));
       } else {
-        const { issues } = smcc.analyzeStandaloneCard(text, { weekdayButtons: buttons });
+        const { issues } = smcc.analyzeStandaloneCard(text, opts);
         for (const i of issues) out.push(fromSmccIssue(`슬라이드 ${s.slideNumber}`, i));
       }
     }
@@ -229,7 +230,8 @@ export function Workspace({ initial }: { initial: ProjectDetail }) {
       }
 
       // 2) 상단 요일 버튼은 카드 전체 OCR로는 잘 안 읽혀서, 버튼 영역만 따로 잘라 OCR한다.
-      const weekdayButtons = new Map<number, smcc.WeekdayButtonScan>();
+      //    함께 "강조(선택)된 버튼"이 어느 요일인지도 픽셀로 감지해서 날짜 요일과 대조한다.
+      const weekdayButtons = new Map<number, { scan: smcc.WeekdayButtonScan; weekdayButton: number | null }>();
       const withImage = slides.filter((s) => s.previewUrl);
       for (let i = 0; i < withImage.length; i++) {
         const s = withImage[i]!;
@@ -238,9 +240,12 @@ export function Workspace({ initial }: { initial: ProjectDetail }) {
           percent: 20 + Math.round(((i + 1) / withImage.length) * 5),
           message: `요일 버튼 확인 중 (${i + 1}/${withImage.length})`,
         });
-        const scan = await extractWeekdayButtons(s.previewUrl!);
-        if ((scan.cells && scan.cells.length > 0) || (scan.tokens && scan.tokens.length > 0)) {
-          weekdayButtons.set(s.slideNumber, scan);
+        const result = await extractWeekdayButtons(s.previewUrl!);
+        const hasScan =
+          (result.scan.cells && result.scan.cells.length > 0) ||
+          (result.scan.tokens && result.scan.tokens.length > 0);
+        if (hasScan || result.weekdayButton != null) {
+          weekdayButtons.set(s.slideNumber, result);
         }
       }
 
@@ -399,7 +404,7 @@ export function Workspace({ initial }: { initial: ProjectDetail }) {
    */
   async function extractWeekdayButtons(
     imageDataUrl: string,
-  ): Promise<smcc.WeekdayButtonScan> {
+  ): Promise<{ scan: smcc.WeekdayButtonScan; weekdayButton: number | null }> {
     try {
       const img = await new Promise<HTMLImageElement>((resolve, reject) => {
         const el = new Image();
@@ -417,7 +422,7 @@ export function Workspace({ initial }: { initial: ProjectDetail }) {
       stripCanvas.width = W;
       stripCanvas.height = yh;
       const sctx = stripCanvas.getContext('2d');
-      if (!sctx) return {};
+      if (!sctx) return { scan: {}, weekdayButton: null };
       sctx.drawImage(img, 0, y0, W, yh, 0, 0, W, yh);
       const stripUrl = stripCanvas.toDataURL('image/png');
 
@@ -426,6 +431,9 @@ export function Workspace({ initial }: { initial: ProjectDetail }) {
       const x0 = W * 0.11;
       const cw = (W * 0.89 - x0) / 7;
       const cellUrls: string[] = [];
+      // 각 칸의 "청록색 채움" 비율 — 선택(강조)된 버튼은 배경이 청록으로 꽉 차 있고 나머지는
+      // 흰 배경에 얇은 테두리뿐이라, 채움 비율이 가장 큰 칸이 선택된 요일이다.
+      const fillScores: number[] = [];
       for (let i = 0; i < 7; i++) {
         const cx = Math.round(x0 + i * cw);
         const cx2 = Math.round(x0 + (i + 1) * cw);
@@ -434,10 +442,41 @@ export function Workspace({ initial }: { initial: ProjectDetail }) {
         cc.width = cwi;
         cc.height = yh;
         const cctx = cc.getContext('2d');
-        if (!cctx) return {};
+        if (!cctx) return { scan: {}, weekdayButton: null };
         cctx.drawImage(img, cx, y0, cwi, yh, 0, 0, cwi, yh);
         cellUrls.push(cc.toDataURL('image/png'));
+        try {
+          const { data } = cctx.getImageData(0, 0, cwi, yh);
+          let teal = 0;
+          const total = cwi * yh;
+          for (let p = 0; p < data.length; p += 4) {
+            const r = data[p]!;
+            const g = data[p + 1]!;
+            const b = data[p + 2]!;
+            // 청록/파랑 계열: r 이 가장 낮고, g·b 가 충분히 높음(흰색·연한 테두리는 제외).
+            if (r < 150 && g > 120 && b > 120 && g - r > 30 && b - r > 30) teal++;
+          }
+          fillScores.push(teal / total);
+        } catch {
+          fillScores.push(0);
+        }
       }
+      // 가장 채움이 큰 칸을 선택 버튼으로 본다(다른 칸보다 확실히 클 때만).
+      let hi = -1;
+      let hiScore = 0;
+      let secondScore = 0;
+      for (let i = 0; i < 7; i++) {
+        if (fillScores[i]! > hiScore) {
+          secondScore = hiScore;
+          hiScore = fillScores[i]!;
+          hi = i;
+        } else if (fillScores[i]! > secondScore) {
+          secondScore = fillScores[i]!;
+        }
+      }
+      // 버튼 위치(0=Mon..6=Sun) → 요일 인덱스(0=일..6=토): Mon=1,...,Sun=0
+      const highlightedWeekday =
+        hi >= 0 && hiScore > 0.15 && hiScore > secondScore * 1.8 ? (hi + 1) % 7 : null;
 
       const { createWorker, PSM } = await import('tesseract.js');
       const timeout = new Promise<never>((_, reject) =>
@@ -473,9 +512,10 @@ export function Workspace({ initial }: { initial: ProjectDetail }) {
           await worker.terminate();
         }
       })();
-      return await Promise.race([recognizePromise, timeout]);
+      const scan = await Promise.race([recognizePromise, timeout]);
+      return { scan, weekdayButton: highlightedWeekday };
     } catch {
-      return {};
+      return { scan: {}, weekdayButton: null };
     }
   }
 

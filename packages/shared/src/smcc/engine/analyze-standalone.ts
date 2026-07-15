@@ -13,7 +13,8 @@ import { addMinutes, formatTimeLabel, parseTime } from '../formatters/time';
 import { resolveFee } from '../formatters/labels';
 import { withIds } from './validate-event';
 import { checkCurrencyRegion, scanBadCurrency, scanForbiddenCondition } from '../validators/fee';
-import { validateCardLabels, validateCardLanguage, validateLanguageLabel } from '../validators/language';
+import { validateCardLanguage, validateLanguageLabel } from '../validators/language';
+import { compareCardLocation, scanRegionTypo } from '../validators/location';
 import { validateEventDate } from '../validators/date';
 import {
   scanWeekdayButtonRowTypo,
@@ -68,12 +69,16 @@ export function inferEventFromCard(cardText: string): NormalizedEvent {
   }
   const config = PROGRAM_CONFIG[programType];
 
-  // 언어 추론: 프로그램명 언어가 가장 강한 신호. 없으면 한글 포함 여부로 판단한다.
-  // 카페 주소·호스트 아이디(@handle)는 한국어 진행 카드에서도 원문(영문) 그대로 유지되는 게
-  // 정상이라 라틴 문자가 많아지기 쉽다 — 라틴/한글 "비중"으로 비교하면 OCR이 프로그램명 한글을
-  // 놓쳤을 때 영문 카드로 잘못 뒤집히므로, 한글이 하나라도 있으면 한국어 진행으로 판단한다.
+  // 언어 판정: 카드의 언어 아이콘 값("English" / "한국어")이 그 카드의 "선언된 진행 언어"이며
+  // 가장 권위 있는 신호다. 이 값 기준으로 프로그램명/참가조건/지역 등이 그 언어를 따르는지
+  // 검수한다(예: 언어가 English인데 프로그램명이 "데일리 커피 챗"이면 오류). 언어 아이콘 값이
+  // 안 읽히면 프로그램명 언어 → 한글 포함 여부 순으로 추론한다.
+  const hasEnglishLabel = /\benglish\b/i.test(cardText);
+  const hasKoreanLabel = /한국어/.test(cardText);
   let languageMode: LanguageMode;
-  if (krNameHit) languageMode = 'KR';
+  if (hasEnglishLabel && !hasKoreanLabel) languageMode = 'EN';
+  else if (hasKoreanLabel && !hasEnglishLabel) languageMode = 'KR';
+  else if (krNameHit) languageMode = 'KR';
   else if (enNameHit) languageMode = 'EN';
   else {
     const withoutHandles = cardText.replace(/@[A-Za-z0-9_.]+/g, '');
@@ -174,8 +179,9 @@ export function analyzeStandaloneCard(
     ...scanBadCurrency(cardText),
     ...scanForbiddenCondition(cardText),
     ...validateLanguageLabel(event, cardText),
-    ...validateCardLabels(event, cardText),
     ...validateCardLanguage(event, cardText),
+    ...compareCardLocation(event, cardText),
+    ...scanRegionTypo(cardText),
     ...(event.feeMode === 'paid' ? checkCurrencyRegion(event, cardText) : []),
     ...validateEventDate(event),
     ...validateAddressRegion(event, cardText),
