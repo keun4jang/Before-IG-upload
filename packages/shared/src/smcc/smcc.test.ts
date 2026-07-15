@@ -529,4 +529,29 @@ describe('언어 일관성 & 지역 (실제 카드 피드백 반영)', () => {
     const { issues } = analyzeStandaloneCard(card);
     expect(issues.some((i) => i.actual === 'Time')).toBe(false);
   });
+
+  it('국기 검수: 지역 멜버른(호주)인데 국기가 싱가포르 → 국기 불일치', () => {
+    // 비전 AI가 "국기나라: 싱가포르" 를 읽어줬을 때.
+    const card = ['한국어', '데일리 커피 챗', '멜버른', '국기나라: 싱가포르', '7월 2일 목요일'].join('\n');
+    const { issues } = analyzeStandaloneCard(card);
+    expect(issues.some((i) => i.title === '국기 불일치')).toBe(true);
+  });
+
+  it('국기 검수: 지역 성수(한국)인데 국기가 호주 → 국기 불일치', () => {
+    const card = ['한국어', '에스프레소 런', '성수', '국기나라: 호주', '$ 30', '7월 3일 금요일'].join('\n');
+    const { issues } = analyzeStandaloneCard(card);
+    expect(issues.some((i) => i.title === '국기 불일치')).toBe(true);
+  });
+
+  it('국기 검수: 지역과 국기가 맞으면 통과(멜버른=호주)', () => {
+    const card = ['한국어', '데일리 커피 챗', '멜버른', '국기나라: 호주', '7월 2일 목요일'].join('\n');
+    const { issues } = analyzeStandaloneCard(card);
+    expect(issues.some((i) => i.title === '국기 불일치')).toBe(false);
+  });
+
+  it('국기 줄이 없으면(비전 AI 미사용) 국기 검수는 건너뛴다', () => {
+    const card = ['한국어', '데일리 커피 챗', '멜버른', '7월 2일 목요일'].join('\n');
+    const { issues } = analyzeStandaloneCard(card);
+    expect(issues.some((i) => i.title === '국기 불일치')).toBe(false);
+  });
 });

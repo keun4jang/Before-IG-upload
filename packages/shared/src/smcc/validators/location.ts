@@ -1,4 +1,4 @@
-import { LOCATIONS } from '../constants';
+import { COUNTRY_ALIASES, FOREIGN_CITY_MARKERS, LOCATIONS } from '../constants';
 import type { NormalizedEvent, RawSmccIssue } from '../schemas';
 
 export function validateEventLocation(e: NormalizedEvent): RawSmccIssue[] {
@@ -53,6 +53,57 @@ function levenshtein(a: string, b: string): number {
     }
   }
   return dp[m]![n]!;
+}
+
+/** 나라 이름 문자열을 표준(한국/호주/...)으로 정규화. 모르면 원문 그대로. */
+function normalizeCountry(raw: string): string {
+  const s = raw.trim().toLowerCase();
+  for (const [canonical, aliases] of Object.entries(COUNTRY_ALIASES)) {
+    if (aliases.some((a) => s.includes(a.toLowerCase()))) return canonical;
+  }
+  return raw.trim();
+}
+
+/** 지역으로부터 기대되는 나라(국기 검수용). 모르면 null. */
+function expectedCountry(e: NormalizedEvent, cardText: string): string | null {
+  const loc = LOCATIONS.find((l) =>
+    l.match.some(
+      (m) =>
+        e.locationRaw.toLowerCase().includes(m.toLowerCase()) ||
+        e.locationCanonicalKr.toLowerCase().includes(m.toLowerCase()),
+    ),
+  );
+  if (loc) return loc.country;
+  // 주소/카드에 해외 도시 마커가 있으면 그 나라로 추정
+  const hay = `${e.cafeAddress} ${cardText}`.toLowerCase();
+  const marker = FOREIGN_CITY_MARKERS.find((m) => hay.includes(m.toLowerCase()));
+  if (marker) return normalizeCountry(marker);
+  return null;
+}
+
+/**
+ * [국기 검수] 비전 AI가 읽어준 "국기나라: X" 값을 지역의 나라와 대조.
+ * 예: 지역은 멜버른(호주)인데 국기가 싱가포르 → 오류. 비전 AI가 없으면(국기 줄 없음) 건너뜀.
+ */
+export function validateFlagCountry(e: NormalizedEvent, cardText: string): RawSmccIssue[] {
+  const m = cardText.match(/국기나라\s*[:：]\s*([^\n]+)/);
+  if (!m) return [];
+  const flagCountry = normalizeCountry(m[1]!);
+  const expected = expectedCountry(e, cardText);
+  if (!expected) return [];
+  if (normalizeCountry(expected) === flagCountry) return [];
+  return [
+    {
+      category: 'location-rule',
+      severity: 'error',
+      title: '국기 불일치',
+      description: `지역은 "${e.locationCanonicalKr || e.locationRaw}"(${expected})인데 국기는 "${flagCountry}" 입니다.`,
+      expected: `${expected} 국기`,
+      actual: `${flagCountry} 국기`,
+      confidence: 0.8,
+      resolutionHint: '지역에 맞는 국기로 바꾸세요.',
+    },
+  ];
 }
 
 /** 알려진 지역명(3자 이상)과 딱 한 글자 다른 토큰을 오타 의심으로 표시. 예: "여위도" → "여의도". */

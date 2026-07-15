@@ -21,7 +21,7 @@ export const env = {
   localStorageDir: process.env.LOCAL_STORAGE_DIR ?? '.storage',
 
   ocrProvider: (process.env.OCR_PROVIDER ?? 'dummy') as 'dummy' | 'tesseract' | 'google',
-  llmProvider: (process.env.LLM_PROVIDER ?? 'none') as 'none' | 'openai' | 'anthropic',
+  llmProvider: (process.env.LLM_PROVIDER ?? 'none') as 'none' | 'openai' | 'anthropic' | 'gemini',
   searchProvider: (process.env.SEARCH_PROVIDER ?? 'none') as 'none' | 'tavily' | 'serpapi',
 
   openaiApiKey: process.env.OPENAI_API_KEY,
@@ -29,6 +29,9 @@ export const env = {
   openaiModel: process.env.OPENAI_MODEL ?? 'gpt-4o-mini',
   anthropicApiKey: process.env.ANTHROPIC_API_KEY,
   anthropicModel: process.env.ANTHROPIC_MODEL ?? 'claude-sonnet-5',
+  /** Google Gemini(무료 티어 제공) 비전 모델 — 이미지 텍스트+국기까지 인식. */
+  geminiApiKey: process.env.GEMINI_API_KEY,
+  geminiModel: process.env.GEMINI_MODEL ?? 'gemini-2.0-flash',
 
   tavilyApiKey: process.env.TAVILY_API_KEY,
   serpapiApiKey: process.env.SERPAPI_API_KEY,

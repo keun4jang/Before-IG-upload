@@ -1,7 +1,7 @@
 import type { CanonicalCardFields, NormalizedEvent, RawSmccIssue, SmccIssue } from '../schemas';
 import { scanBadCurrency, scanForbiddenCondition, compareCardFee } from '../validators/fee';
 import { validateCardLanguage, validateLanguageLabel } from '../validators/language';
-import { compareCardLocation, scanRegionTypo } from '../validators/location';
+import { compareCardLocation, scanRegionTypo, validateFlagCountry } from '../validators/location';
 import { compareCardTime } from '../validators/time';
 import { compareCardDate } from '../validators/date';
 import { compareFields } from '../validators/card-compare';
@@ -67,6 +67,7 @@ export function validateCardText(
     ...validateCardLanguage(e, cardText),
     ...compareCardLocation(e, cardText),
     ...scanRegionTypo(cardText),
+    ...validateFlagCountry(e, cardText),
     ...compareCardDate(e, cardText),
     ...compareCardTime(e, cardText),
     ...compareFields(e, canonical, cardText),

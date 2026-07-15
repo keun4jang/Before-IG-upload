@@ -14,7 +14,7 @@ import { resolveFee } from '../formatters/labels';
 import { withIds } from './validate-event';
 import { checkCurrencyRegion, scanBadCurrency, scanForbiddenCondition } from '../validators/fee';
 import { validateCardLanguage, validateLanguageLabel } from '../validators/language';
-import { compareCardLocation, scanRegionTypo } from '../validators/location';
+import { compareCardLocation, scanRegionTypo, validateFlagCountry } from '../validators/location';
 import { validateEventDate } from '../validators/date';
 import {
   scanWeekdayButtonRowTypo,
@@ -182,6 +182,7 @@ export function analyzeStandaloneCard(
     ...validateCardLanguage(event, cardText),
     ...compareCardLocation(event, cardText),
     ...scanRegionTypo(cardText),
+    ...validateFlagCountry(event, cardText),
     ...(event.feeMode === 'paid' ? checkCurrencyRegion(event, cardText) : []),
     ...validateEventDate(event),
     ...validateAddressRegion(event, cardText),

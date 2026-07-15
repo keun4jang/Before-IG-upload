@@ -7,20 +7,32 @@ export const MONTH_EN = [
   'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
 ];
 
-/** 지역 표준 표기 (KR/EN) + 국내여부 + 주소에 나타나야 할 마커 */
+/** 지역 표준 표기 (KR/EN) + 국내여부 + 국가 + 주소에 나타나야 할 마커 */
 export const LOCATIONS: Array<{
   kr: string;
   en: string;
   match: string[];
   domestic: boolean;
+  /** 이 지역이 속한 나라(국기 검수용, 한글 표기) */
+  country: string;
   /** 이 지역 카드의 주소에 통상 포함되는 토큰 (교차검증용) */
   addressMarkers: string[];
 }> = [
-  { kr: '성수', en: 'Seongsu', match: ['성수', 'seongsu'], domestic: true, addressMarkers: ['성수', '성동', '서울', 'seongsu', 'seongdong', 'seoul'] },
-  { kr: '여의도', en: 'Yeouido', match: ['여의도', 'yeouido'], domestic: true, addressMarkers: ['여의도', '영등포', '서울', 'yeouido', 'yeongdeungpo', 'seoul'] },
-  { kr: '멜버른', en: 'Melbourne', match: ['멜버른', 'melbourne'], domestic: false, addressMarkers: ['melbourne', 'vic'] },
-  { kr: '시드니', en: 'Sydney', match: ['시드니', 'sydney'], domestic: false, addressMarkers: ['sydney', 'nsw'] },
+  { kr: '성수', en: 'Seongsu', match: ['성수', 'seongsu'], domestic: true, country: '한국', addressMarkers: ['성수', '성동', '서울', 'seongsu', 'seongdong', 'seoul'] },
+  { kr: '여의도', en: 'Yeouido', match: ['여의도', 'yeouido'], domestic: true, country: '한국', addressMarkers: ['여의도', '영등포', '서울', 'yeouido', 'yeongdeungpo', 'seoul'] },
+  { kr: '멜버른', en: 'Melbourne', match: ['멜버른', 'melbourne'], domestic: false, country: '호주', addressMarkers: ['melbourne', 'vic'] },
+  { kr: '시드니', en: 'Sydney', match: ['시드니', 'sydney'], domestic: false, country: '호주', addressMarkers: ['sydney', 'nsw'] },
 ];
+
+/** 나라 이름 표기 정규화 (국기 검수: 비전이 뭐라고 부르든 한 형태로 맞춘다) */
+export const COUNTRY_ALIASES: Record<string, string[]> = {
+  한국: ['한국', '대한민국', 'korea', 'south korea', 'republic of korea', '🇰🇷'],
+  호주: ['호주', '오스트레일리아', 'australia', '🇦🇺'],
+  싱가포르: ['싱가포르', 'singapore', '🇸🇬'],
+  일본: ['일본', 'japan', '🇯🇵'],
+  미국: ['미국', 'usa', 'united states', 'america', '🇺🇸'],
+  영국: ['영국', 'uk', 'united kingdom', 'britain', '🇬🇧'],
+};
 
 /** 해외 주소에서 나타나는 다른 국가/도시 마커 (지역↔주소 불일치 탐지 보조) */
 export const FOREIGN_CITY_MARKERS = [
