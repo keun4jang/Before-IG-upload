@@ -186,22 +186,11 @@ describe('실전 버그 재현: KR 카드에 영어 언어표기/영어 라벨 (
     ).toBe(true);
   });
 
-  it('KR 행사 + "Date" 영어 라벨 => error', () => {
+  it('"Date"/"Meet at"는 카드 언어와 무관하게 항상 영어 UI 라벨이라 오류로 잡으면 안 된다', () => {
+    // 실제 카드를 확인해보면 KR 카드에도 "Date"/"Meet at" 라벨은 항상 영어로 고정 표기된다.
     const review = reviewEvent(buildEvent(), cardText);
-    expect(
-      review.cardIssues.some(
-        (i) => i.category === 'language-mismatch' && i.severity === 'error' && i.actual === 'Date',
-      ),
-    ).toBe(true);
-  });
-
-  it('KR 행사 + "Meet at" 영어 라벨 => error', () => {
-    const review = reviewEvent(buildEvent(), cardText);
-    expect(
-      review.cardIssues.some(
-        (i) => i.category === 'language-mismatch' && i.severity === 'error' && i.actual === 'Meet at',
-      ),
-    ).toBe(true);
+    expect(review.cardIssues.some((i) => i.actual === 'Date')).toBe(false);
+    expect(review.cardIssues.some((i) => i.actual === 'Meet at')).toBe(false);
   });
 
   it('mixed-language 경고도 함께 감지', () => {
@@ -211,11 +200,11 @@ describe('실전 버그 재현: KR 카드에 영어 언어표기/영어 라벨 (
     ).toBe(true);
   });
 
-  it('종합: 이 카드는 절대 "이슈 없음"이면 안 된다 (최소 3개 오류)', () => {
+  it('종합: 이 카드는 절대 "이슈 없음"이면 안 된다 (최소 2개 오류)', () => {
     const review = reviewEvent(buildEvent(), cardText);
     const errors = review.cardIssues.filter((i) => i.severity === 'error');
     expect(review.cardIssues.length).toBeGreaterThan(0);
-    expect(errors.length).toBeGreaterThanOrEqual(3);
+    expect(errors.length).toBeGreaterThanOrEqual(2);
   });
 
   it('EN 행사에 한국어 프로그램명 => error (strict canonical mismatch)', () => {
@@ -388,10 +377,10 @@ describe('시트 없이 카드 단독 검수 (이미지/붙여넣기)', () => {
     expect(issues.some((i) => i.category === 'language-mismatch' && i.actual === 'Korean' && i.severity === 'error')).toBe(true);
   });
 
-  it('KR 카드인데 "Date"/"Meet at" 영어 라벨 → 오류', () => {
+  it('"Date"/"Meet at"는 KR 카드에도 항상 영어라 오류로 잡으면 안 된다', () => {
     const { issues } = analyzeStandaloneCard(russell);
-    expect(issues.some((i) => i.actual === 'Date' && i.severity === 'error')).toBe(true);
-    expect(issues.some((i) => i.actual === 'Meet at' && i.severity === 'error')).toBe(true);
+    expect(issues.some((i) => i.actual === 'Date')).toBe(false);
+    expect(issues.some((i) => i.actual === 'Meet at')).toBe(false);
   });
 
   it('프로그램/언어/지역 추론', () => {

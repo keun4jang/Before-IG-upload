@@ -84,10 +84,12 @@ export function validateLanguageLabel(e: NormalizedEvent, cardText: string): Raw
   return issues;
 }
 
-/** KR 카드에 금지되는 영어 UI 라벨 / EN 카드에 금지되는 한글 UI 라벨 */
+/**
+ * KR 카드에 금지되는 영어 UI 라벨 / EN 카드에 금지되는 한글 UI 라벨.
+ * "Date"/"Meet at"는 SMCC 카드 템플릿 자체가 카드 언어와 무관하게 항상 영어로 고정
+ * 표기하는 UI 라벨이라 여기서 제외한다(실제 카드 확인 결과, KR 카드에도 항상 영어로 나옴).
+ */
 const EN_LABELS_FORBIDDEN_IN_KR: Array<{ re: RegExp; word: string }> = [
-  { re: /\bdate\b/i, word: 'Date' },
-  { re: /\bmeet\s*at\b/i, word: 'Meet at' },
   { re: /\btime\b/i, word: 'Time' },
   { re: /\blocation\b/i, word: 'Location' },
   { re: /\blanguage\b/i, word: 'Language' },
