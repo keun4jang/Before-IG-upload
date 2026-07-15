@@ -116,7 +116,8 @@ const geminiVisionExtract: VisionExtractFn = async (imageDataUrl) => {
             parts: [{ text: PROMPT }, { inline_data: { mime_type: mediaType, data: base64 } }],
           },
         ],
-        generationConfig: { temperature: 0, maxOutputTokens: 800 },
+        // thinkingBudget:0 — 2.5 계열은 "생각" 토큰이 응답 예산을 다 먹어 빈 응답이 나올 수 있어 끔.
+        generationConfig: { temperature: 0, maxOutputTokens: 1200, thinkingConfig: { thinkingBudget: 0 } },
       }),
     },
   );

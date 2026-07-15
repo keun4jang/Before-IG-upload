@@ -229,8 +229,8 @@ export function Workspace({ initial }: { initial: ProjectDetail }) {
         }
       }
 
-      // 2) 상단 요일 버튼은 카드 전체 OCR로는 잘 안 읽혀서, 버튼 영역만 따로 잘라 OCR한다.
-      //    함께 "강조(선택)된 버튼"이 어느 요일인지도 픽셀로 감지해서 날짜 요일과 대조한다.
+      // 2) 상단 요일 버튼 검사: 비전 AI가 켜져 있으면 그 결과("요일버튼:"/"선택요일:" 줄)를
+      //    쓰고, 없으면 버튼 영역만 따로 잘라 로컬 OCR + 픽셀로 강조 버튼을 감지한다.
       const weekdayButtons = new Map<number, { scan: smcc.WeekdayButtonScan; weekdayButton: number | null }>();
       const withImage = slides.filter((s) => s.previewUrl);
       for (let i = 0; i < withImage.length; i++) {
@@ -240,7 +240,8 @@ export function Workspace({ initial }: { initial: ProjectDetail }) {
           percent: 20 + Math.round(((i + 1) / withImage.length) * 5),
           message: `요일 버튼 확인 중 (${i + 1}/${withImage.length})`,
         });
-        const result = await extractWeekdayButtons(s.previewUrl!);
+        const slideText = finalTexts.get(s.slideNumber) ?? s.editedText ?? s.rawText;
+        const result = parseVisionWeekday(slideText) ?? (await extractWeekdayButtons(s.previewUrl!));
         const hasScan =
           (result.scan.cells && result.scan.cells.length > 0) ||
           (result.scan.tokens && result.scan.tokens.length > 0);
@@ -393,6 +394,29 @@ export function Workspace({ initial }: { initial: ProjectDetail }) {
     } catch {
       return null;
     }
+  }
+
+  /**
+   * 비전 AI 결과 텍스트에 있는 "요일버튼: ..." / "선택요일: ..." 줄을 파싱해 요일 버튼 스캔으로
+   * 변환한다. 비전 AI는 버튼 줄을 로컬 OCR보다 훨씬 정확히(오타·중복 포함) 읽어준다.
+   * 해당 줄이 없으면 null → 호출부가 로컬 OCR(extractWeekdayButtons)로 대체.
+   */
+  function parseVisionWeekday(
+    text: string,
+  ): { scan: smcc.WeekdayButtonScan; weekdayButton: number | null } | null {
+    const line = text.match(/요일\s*버튼\s*[:：]\s*([^\n]+)/);
+    if (!line) return null;
+    const tokens = (line[1]!.match(/mon|tue|wed|thu|fri|sat|sun/gi) ?? []).map((t) => t.toLowerCase());
+    if (tokens.length < 6) return null;
+    const cells = tokens.length === 7 ? tokens : undefined;
+    const order = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+    const sel = text.match(/선택\s*요일\s*[:：]\s*(mon|tue|wed|thu|fri|sat|sun)/i);
+    let weekdayButton: number | null = null;
+    if (sel) {
+      const pos = order.indexOf(sel[1]!.toLowerCase());
+      if (pos >= 0) weekdayButton = (pos + 1) % 7; // 버튼위치(Mon=0..Sun=6) → 요일(0=일..6=토)
+    }
+    return { scan: { cells, tokens }, weekdayButton };
   }
 
   /**

@@ -31,7 +31,7 @@ export const env = {
   anthropicModel: process.env.ANTHROPIC_MODEL ?? 'claude-sonnet-5',
   /** Google Gemini(무료 티어 제공) 비전 모델 — 이미지 텍스트+국기까지 인식. */
   geminiApiKey: process.env.GEMINI_API_KEY,
-  geminiModel: process.env.GEMINI_MODEL ?? 'gemini-2.0-flash',
+  geminiModel: process.env.GEMINI_MODEL ?? 'gemini-2.5-flash',
 
   tavilyApiKey: process.env.TAVILY_API_KEY,
   serpapiApiKey: process.env.SERPAPI_API_KEY,
