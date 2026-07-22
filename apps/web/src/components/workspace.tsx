@@ -163,7 +163,10 @@ export function Workspace({ initial }: { initial: ProjectDetail }) {
         ocrConfidence: s.ocrConfidence ?? undefined,
       })),
       captionText: captionText.trim() ? captionText : undefined,
-      factCheckEnabled: true,
+      // 브라우저 검수에는 검색 provider 가 없어서 사실 검토가 항상 "근거 수집 비활성화 — 직접
+      // 확인 권장" 안내만 만들어낸다. 날짜/금액마다 그 경고가 붙어 정작 진짜 문제를 가리므로
+      // 끈다(날짜·요일·가격은 SMCC 규칙 검수가 정확하게 따로 잡는다).
+      factCheckEnabled: false,
     };
   }
 
@@ -788,8 +791,9 @@ export function Workspace({ initial }: { initial: ProjectDetail }) {
           </div>
         </div>
 
-        {/* 중앙: 미리보기 + 텍스트 편집 + 캡션 */}
-        <div className="space-y-4">
+        {/* 중앙: 미리보기 + 캡션 — 스크롤을 내려도 화면을 따라오도록 sticky */}
+        <div>
+          <div className="space-y-4 lg:sticky lg:top-20">
           {current && (
             <Card>
               <CardContent className="pt-5">
@@ -837,6 +841,7 @@ export function Workspace({ initial }: { initial: ProjectDetail }) {
               />
             </CardContent>
           </Card>
+          </div>
         </div>
 
         {/* 우: 결과 */}
