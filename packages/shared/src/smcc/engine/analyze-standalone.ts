@@ -44,7 +44,7 @@ export interface StandaloneInference {
 }
 
 /** 카드 텍스트에서 프로그램/언어/지역/날짜를 추론해 최소 NormalizedEvent 구성. */
-export function inferEventFromCard(cardText: string): NormalizedEvent {
+export function inferEventFromCard(cardText: string, refDate?: Date): NormalizedEvent {
   const loose = normLoose(cardText);
 
   // 프로그램 추론 (KR 이름 우선, 없으면 EN 이름)
@@ -92,11 +92,15 @@ export function inferEventFromCard(cardText: string): NormalizedEvent {
   const locKr = locMatch ? locMatch.kr : '';
   const locEn = locMatch ? locMatch.en : '';
 
-  // 날짜 추론: "M월 D일 요일" 또는 "Mon Dth" 형태를 원문에서 찾음
+  // 날짜 추론: "M월 D일 요일" 또는 "Jul 3rd, Fri" 형태를 원문에서 찾음.
+  // 영문 날짜는 반드시 실제 월 이름(Jan~Dec)으로 시작해야 한다 — 느슨하게 "단어+숫자"로 잡으면
+  // 카드 상단의 "Min. 1"(Drink) 같은 걸 날짜로 오인해서 날짜/요일 검사가 통째로 빠진다.
   const krDate = cardText.match(/\d{1,2}\s*월\s*\d{1,2}\s*일(?:\s*[월화수목금토일]요일)?/);
-  const enDate = cardText.match(/\b[A-Za-z]{3,}\.?\s+\d{1,2}(?:st|nd|rd|th)?(?:,?\s*[A-Za-z]{3})?/);
+  const enDate = cardText.match(
+    /\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+\d{1,2}(?:st|nd|rd|th)?(?:,?\s*(?:sun|mon|tue|wed|thu|fri|sat)[a-z]*)?/i,
+  );
   const dateRaw = (krDate?.[0] ?? enDate?.[0] ?? '').trim();
-  const pd = parseDate(dateRaw, new Date());
+  const pd = parseDate(dateRaw, refDate ?? new Date());
   const dateIso = pd.iso;
   const weekdayExpected = dateIso ? weekdayOf(dateIso) : null;
 
@@ -169,9 +173,11 @@ export function analyzeStandaloneCard(
   options: {
     weekdayButton?: number | null;
     weekdayButtons?: import('../validators/consistency').WeekdayButtonScan;
+    /** 연도 없는 날짜("7월 2일")의 연도 추정 기준 시점. 미지정 시 현재 시각(테스트용). */
+    refDate?: Date;
   } = {},
 ): StandaloneResult {
-  const event = inferEventFromCard(cardText);
+  const event = inferEventFromCard(cardText, options.refDate);
   if (!cardText.trim() && options.weekdayButton == null && !options.weekdayButtons) {
     return { event, issues: [] };
   }

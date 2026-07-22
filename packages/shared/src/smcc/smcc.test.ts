@@ -555,3 +555,62 @@ describe('언어 일관성 & 지역 (실제 카드 피드백 반영)', () => {
     expect(issues.some((i) => i.title === '국기 불일치')).toBe(false);
   });
 });
+
+describe('날짜 ↔ 요일 일치 검수 (KR/EN 날짜 형식 모두)', () => {
+  const ref = new Date('2026-07-01'); // 2026-07-02=목요일, 2026-07-03=금요일
+
+  it('KR 카드: "7월 2일 금요일"(실제는 목요일) → 요일 불일치 오류', () => {
+    const card = ['한국어', '데일리 커피 챗', '성수', '1인 1잔', 'Date 7월 2일 금요일'].join('\n');
+    const { issues } = analyzeStandaloneCard(card, { refDate: ref });
+    expect(issues.some((i) => i.title === '요일 불일치' && i.severity === 'error')).toBe(true);
+  });
+
+  it('KR 카드: "7월 2일 목요일"(맞음) → 요일 불일치 없음', () => {
+    const card = ['한국어', '데일리 커피 챗', '성수', '1인 1잔', 'Date 7월 2일 목요일'].join('\n');
+    const { issues } = analyzeStandaloneCard(card, { refDate: ref });
+    expect(issues.some((i) => i.title === '요일 불일치')).toBe(false);
+  });
+
+  it('EN 카드(멜버른 등 해외 지역 포함): "Jul 2nd, Fri"(실제는 Thu) → 요일 불일치 오류', () => {
+    // 회귀: 예전엔 "Min. 1 Drink"의 "Min. 1"을 날짜로 오인해 EN 카드의 날짜/요일 검사가
+    // 통째로 빠졌다. 이제 실제 월 이름(Jul 등)으로 시작하는 날짜만 인식한다.
+    const card = ['English', 'Daily Coffee Chat', 'Melbourne', 'Min. 1 Drink', 'Date Jul 2nd, Fri'].join('\n');
+    const { event, issues } = analyzeStandaloneCard(card, { refDate: ref });
+    expect(event.dateIso).toBe('2026-07-02');
+    expect(issues.some((i) => i.title === '요일 불일치' && i.severity === 'error')).toBe(true);
+  });
+
+  it('EN 카드: "Jul 3rd, Fri"(맞음) → 요일 불일치 없음', () => {
+    const card = ['English', 'Daily Coffee Chat', 'Melbourne', 'Min. 1 Drink', 'Date Jul 3rd, Fri'].join('\n');
+    const { event, issues } = analyzeStandaloneCard(card, { refDate: ref });
+    expect(event.dateIso).toBe('2026-07-03');
+    expect(issues.some((i) => i.title === '요일 불일치')).toBe(false);
+  });
+
+  it('시트 연동 EN: 시트 날짜 Jul 10(금)인데 카드가 "Jul 10th, Sat" → 요일 불일치', () => {
+    const enHeaders = ['타임스탬프', 'Preferred Date', 'Preferred Time', 'District/Area', 'Cafe Name', 'Branch', 'Street Address', 'Instagram ID'];
+    const enRow = ['2026-06-20', 'Jul 10', 'AM 7:30', 'Melbourne', 'Axil Coffee', '', '565 Bourke St, Melbourne VIC 3000', '@en_host'];
+    const e = normalizeRow('daily-coffee-chat-en', enHeaders, enRow, {
+      sheetUrl: FIXTURES['daily-coffee-chat-en'].url,
+      rowIndex: 0,
+      refDate: new Date('2026-06-20'),
+    });
+    expect(e.dateIso).toBe('2026-07-10'); // 금요일
+    const card = ['English', 'Daily Coffee Chat', 'Melbourne', 'Min. 1 Drink', 'Date Jul 10th, Sat'].join('\n');
+    const review = reviewEvent(e, card);
+    expect(review.cardIssues.some((i) => i.title === '요일 불일치' && i.severity === 'error')).toBe(true);
+  });
+
+  it('시트 연동 EN: 시트 날짜 Jul 10인데 카드가 "Jul 11th" → 날짜 불일치', () => {
+    const enHeaders = ['타임스탬프', 'Preferred Date', 'Preferred Time', 'District/Area', 'Cafe Name', 'Branch', 'Street Address', 'Instagram ID'];
+    const enRow = ['2026-06-20', 'Jul 10', 'AM 7:30', 'Melbourne', 'Axil Coffee', '', '565 Bourke St, Melbourne VIC 3000', '@en_host'];
+    const e = normalizeRow('daily-coffee-chat-en', enHeaders, enRow, {
+      sheetUrl: FIXTURES['daily-coffee-chat-en'].url,
+      rowIndex: 0,
+      refDate: new Date('2026-06-20'),
+    });
+    const card = ['English', 'Daily Coffee Chat', 'Melbourne', 'Min. 1 Drink', 'Date Jul 11th, Sat'].join('\n');
+    const review = reviewEvent(e, card);
+    expect(review.cardIssues.some((i) => i.title === '날짜 불일치' && i.severity === 'error')).toBe(true);
+  });
+});

@@ -2,13 +2,17 @@ import { MONTH_EN, WEEKDAY_KR } from '../constants';
 import { weekdayFromText } from '../formatters/date';
 import type { NormalizedEvent, RawSmccIssue } from '../schemas';
 
-/** 카드 텍스트에서 월/일 추출 (KR "M월 D일" 또는 EN "Mon D") */
+/** 카드 텍스트에서 월/일 추출 (KR "M월 D일" 또는 EN "Jul 2nd") */
 export function extractMonthDay(text: string): { month: number; day: number } | null {
   const kr = text.match(/(\d{1,2})\s*월\s*(\d{1,2})\s*일/);
   if (kr) return { month: Number(kr[1]), day: Number(kr[2]) };
-  const en = text.match(/\b([A-Za-z]{3,})\.?\s+(\d{1,2})(?:st|nd|rd|th)?\b/);
+  // 영문은 반드시 실제 월 이름으로 시작해야 한다 — 느슨하게 "단어+숫자"로 잡으면 "Min. 1"
+  // (Drink) 같은 것에 먼저 걸려서 진짜 날짜("Jul 2nd")를 놓친다.
+  const en = text.match(
+    /\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+(\d{1,2})(?:st|nd|rd|th)?\b/i,
+  );
   if (en) {
-    const mi = MONTH_EN.findIndex((x) => x.toLowerCase() === en[1]!.slice(0, 3).toLowerCase());
+    const mi = MONTH_EN.findIndex((x) => x.toLowerCase() === en[1]!.toLowerCase());
     if (mi >= 0) return { month: mi + 1, day: Number(en[2]) };
   }
   return null;
