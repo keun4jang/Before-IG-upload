@@ -67,7 +67,15 @@ export const SHEET_SOURCES: Array<{
   type: SheetType;
   label: string;
   url: string;
+  /** 지정 시 이 제목의 탭만 사용(통합본처럼 작업용 탭이 많은 시트에서 정답 탭만 골라 읽기) */
+  tabTitles?: string[];
 }> = [
+  {
+    type: 'master',
+    label: '통합본 (Weekly Master)',
+    url: 'https://docs.google.com/spreadsheets/d/1iKClmdYBLd6Q1Bhiy40wjiCBsBPO4QmgGniCby13wVY/edit?gid=100#gid=100',
+    tabTitles: ['Weekly Production'],
+  },
   {
     type: 'espresso-run',
     label: 'Espresso Run',

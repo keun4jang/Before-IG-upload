@@ -4,12 +4,14 @@ import { normalizeEspressoRun } from '../normalizers/espresso-run';
 import { normalizeBookDive } from '../normalizers/book-dive';
 import { normalizeDailyCoffeeChatKr } from '../normalizers/daily-coffee-chat-kr';
 import { normalizeDailyCoffeeChatEn } from '../normalizers/daily-coffee-chat-en';
+import { normalizeMaster } from '../normalizers/master';
 
 const NORMALIZERS = {
   'espresso-run': normalizeEspressoRun,
   'book-dive': normalizeBookDive,
   'daily-coffee-chat-kr': normalizeDailyCoffeeChatKr,
   'daily-coffee-chat-en': normalizeDailyCoffeeChatEn,
+  master: normalizeMaster,
 } as const;
 
 export function normalizeRow(

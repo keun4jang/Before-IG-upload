@@ -74,6 +74,8 @@ export const PROGRAM_CONFIG: Record<ProgramType, ProgramConfig> = {
 };
 
 export const SHEET_TO_PROGRAM: Record<SheetType, ProgramType> = {
+  // master(통합본)는 행마다 Program 열이 명시돼 있어 이 기본값은 사용되지 않는다.
+  master: 'daily-coffee-chat',
   'espresso-run': 'espresso-run',
   'book-dive': 'book-dive',
   'daily-coffee-chat-kr': 'daily-coffee-chat',
@@ -81,6 +83,8 @@ export const SHEET_TO_PROGRAM: Record<SheetType, ProgramType> = {
 };
 
 export const SHEET_TO_LANGUAGE: Record<SheetType, 'KR' | 'EN'> = {
+  // master(통합본)는 행마다 Language 열이 명시돼 있어 이 기본값은 사용되지 않는다.
+  master: 'KR',
   'espresso-run': 'KR',
   'book-dive': 'KR',
   'daily-coffee-chat-kr': 'KR',

@@ -35,7 +35,7 @@ export interface NormalizeMeta {
   refDate?: Date;
 }
 
-function canonLocation(raw: string): { kr: string; en: string } {
+export function canonLocation(raw: string): { kr: string; en: string } {
   const n = raw.toLowerCase();
   for (const loc of LOCATIONS) {
     if (loc.match.some((m) => n.includes(m.toLowerCase()))) {
@@ -45,7 +45,7 @@ function canonLocation(raw: string): { kr: string; en: string } {
   return { kr: raw, en: raw };
 }
 
-function parseRoute(raw: string): RouteStop[] {
+export function parseRoute(raw: string): RouteStop[] {
   if (!raw.trim()) return [];
   return raw
     .split(/[→>/·,\n]+/)
@@ -54,7 +54,7 @@ function parseRoute(raw: string): RouteStop[] {
     .map((name) => ({ name }));
 }
 
-function parseDistance(raw: string): number | null {
+export function parseDistance(raw: string): number | null {
   const m = raw.match(/(\d+(?:\.\d+)?)\s*km/i);
   return m ? Number(m[1]) : null;
 }

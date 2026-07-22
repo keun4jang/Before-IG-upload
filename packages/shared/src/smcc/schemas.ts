@@ -15,7 +15,9 @@ export type SheetType =
   | 'espresso-run'
   | 'book-dive'
   | 'daily-coffee-chat-kr'
-  | 'daily-coffee-chat-en';
+  | 'daily-coffee-chat-en'
+  /** 4개 시트를 합친 통합본(Weekly Announcement Master) — 행마다 프로그램/언어/가격이 명시됨 */
+  | 'master';
 
 export type FeeMode = 'free' | 'paid';
 

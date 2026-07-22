@@ -614,3 +614,50 @@ describe('날짜 ↔ 요일 일치 검수 (KR/EN 날짜 형식 모두)', () => {
     expect(review.cardIssues.some((i) => i.title === '날짜 불일치' && i.severity === 'error')).toBe(true);
   });
 });
+
+describe('통합본(master) 시트: 행마다 프로그램/언어/가격이 명시된 Weekly Production 탭', () => {
+  const f = FIXTURES.master;
+  const meta = (i: number) => ({ sheetUrl: f.url, rowIndex: i, refDate: new Date('2026-06-20') });
+
+  it('KR 데일리 커피 챗 행: 프로그램/언어/무료조건을 시트 값 그대로 사용', () => {
+    const e = normalizeRow('master', f.headers, f.rows[0]!, meta(0));
+    expect(e.programType).toBe('daily-coffee-chat');
+    expect(e.languageMode).toBe('KR');
+    expect(e.feeMode).toBe('free');
+    expect(e.conditionLabelExpected).toBe('1인 1잔');
+    expect(e.dateIso).toBe('2026-07-01');
+    expect(e.cafeName).toBe('샘플커피 역삼점');
+  });
+
+  it('에스프레소 런 행: 유료 가격/코스/거리를 시트 값 그대로 사용', () => {
+    const e = normalizeRow('master', f.headers, f.rows[1]!, meta(1));
+    expect(e.programType).toBe('espresso-run');
+    expect(e.feeMode).toBe('paid');
+    expect(e.feeLabelExpected).toBe('15,000원');
+    expect(e.distanceKm).toBe(5);
+    expect(e.routeStops.length).toBe(3);
+  });
+
+  it('EN Coffee Chat 행: "Jul 1st Wed" 날짜와 English 언어 인식', () => {
+    const e = normalizeRow('master', f.headers, f.rows[2]!, meta(2));
+    expect(e.programType).toBe('daily-coffee-chat');
+    expect(e.languageMode).toBe('EN');
+    expect(e.dateIso).toBe('2026-07-01');
+    expect(e.weekdayExpected).toBe(3); // 수요일
+    expect(e.conditionLabelExpected).toBe('Min. 1 Drink');
+  });
+
+  it('통합본 연동 검수: 무료(1인 1잔) 행인데 카드에 금액 → 오류', () => {
+    const e = normalizeRow('master', f.headers, f.rows[0]!, meta(0));
+    const card = ['한국어', '데일리 커피 챗', '강남구', '15,000원', '7월 1일 수요일', '샘플커피 역삼점'].join('\n');
+    const review = reviewEvent(e, card);
+    expect(review.cardIssues.some((i) => i.title === '무료 프로그램에 금액 표기')).toBe(true);
+  });
+
+  it('통합본 연동 검수: 시트 요일(수)과 카드 요일(목)이 다르면 → 요일 불일치', () => {
+    const e = normalizeRow('master', f.headers, f.rows[0]!, meta(0));
+    const card = ['한국어', '데일리 커피 챗', '강남구', '1인 1잔', '7월 1일 목요일', '샘플커피 역삼점'].join('\n');
+    const review = reviewEvent(e, card);
+    expect(review.cardIssues.some((i) => i.title === '요일 불일치' && i.severity === 'error')).toBe(true);
+  });
+});

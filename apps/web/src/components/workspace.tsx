@@ -114,7 +114,12 @@ export function Workspace({ initial }: { initial: ProjectDetail }) {
       const data = sheetCache[type];
       if (!data || data.tabs.length === 0) continue;
       const src = smcc.SHEET_SOURCES.find((s) => s.type === type)!;
-      const events = data.tabs.flatMap((tab) => smcc.normalizeSheet(type, src.url, tab.headers, tab.rows));
+      // tabTitles 가 지정된 소스(통합본 등)는 정답 탭만 사용한다. 제목이 빈 탭은 시트 API 키
+      // 없이 단일 gid 로 받아온 경우라 그대로 통과시킨다.
+      const usableTabs = data.tabs.filter(
+        (tab) => !src.tabTitles || !tab.title || src.tabTitles.includes(tab.title),
+      );
+      const events = usableTabs.flatMap((tab) => smcc.normalizeSheet(type, src.url, tab.headers, tab.rows));
       // 최신 날짜가 맨 위로 오도록 정렬. 날짜를 해석 못 한 행은 항상 맨 뒤로 보낸다.
       out[type] = events.slice().sort((a, b) => {
         if (!a.dateIso && !b.dateIso) return 0;

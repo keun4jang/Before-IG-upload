@@ -3,8 +3,9 @@ import { espressoRunSample } from './espresso-run.sample';
 import { bookDiveSample } from './book-dive.sample';
 import { dailyChatKrSample } from './daily-chat-kr.sample';
 import { dailyChatEnSample } from './daily-chat-en.sample';
+import { masterSample } from './master.sample';
 
-export { espressoRunSample, bookDiveSample, dailyChatKrSample, dailyChatEnSample };
+export { espressoRunSample, bookDiveSample, dailyChatKrSample, dailyChatEnSample, masterSample };
 
 export interface FixtureSheet {
   sheetType: SheetType;
@@ -18,4 +19,5 @@ export const FIXTURES: Record<SheetType, FixtureSheet> = {
   'book-dive': bookDiveSample,
   'daily-coffee-chat-kr': dailyChatKrSample,
   'daily-coffee-chat-en': dailyChatEnSample,
+  master: masterSample,
 };
